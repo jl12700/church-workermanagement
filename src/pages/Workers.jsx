@@ -49,18 +49,14 @@ export default function Workers() {
     'Comrades'
   ];
 
-  // Generate unique QR value
+  
   const generateQRValue = () => {
-    return `WORKER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`.toUpperCase();
+    const timestamp = Date.now().toString(36); 
+    const random = Math.random().toString(36).substr(2, 6);
+    return `WRK-${timestamp}-${random}`.toUpperCase();
   };
 
-  // Generate full URL for QR codes
-  const generateFullQRUrl = (qrValue) => {
-    const baseUrl = window.location.origin;
-    return `${baseUrl}/checkin/${qrValue}`;
-  };
-
-  // Fetch workers with filters
+ 
   const fetchWorkers = async (page = 1) => {
     setLoading(true);
     try {
@@ -125,13 +121,12 @@ export default function Workers() {
     fetchWorkers(currentPage);
   }, [currentPage]);
 
-  // Form validation
   const validateForm = () => {
     const errors = {};
     if (!formData.first_name.trim()) errors.first_name = 'First name is required';
     if (!formData.last_name.trim()) errors.last_name = 'Last name is required';
     if (!formData.ministry) errors.ministry = 'Ministry is required';
-    if (!formData.contact.trim()) errors.contact = 'Contact is required';
+    if (!formData.contact.trim()) errors.contact = 'Contact Number is required';
     
     if (/\d/.test(formData.first_name)) errors.first_name = 'First name cannot contain numbers';
     if (/\d/.test(formData.last_name)) errors.last_name = 'Last name cannot contain numbers';
@@ -140,7 +135,7 @@ export default function Workers() {
     return Object.keys(errors).length === 0;
   };
 
-  // Handle form changes
+
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -149,23 +144,25 @@ export default function Workers() {
     }
   };
 
-  // Handle add worker click
+  
   const handleAddWorkerClick = () => {
     if (validateForm()) {
       setShowConfirmModal(true);
     }
   };
 
-  // Save worker to database
+ 
   const saveWorker = async () => {
     setProcessing(true);
     try {
+      const qrValue = generateQRValue();
       const newWorker = {
         name: `${formData.first_name} ${formData.last_name}`,
         ministry: formData.ministry,
         contact: formData.contact,
         status: formData.status,
-        qr_value: generateQRValue()
+        qr_value: qrValue,
+        qr_created: new Date().toISOString()
       };
 
       const { data, error } = await supabase
@@ -189,7 +186,7 @@ export default function Workers() {
     }
   };
 
-  // Toggle worker status
+
   const toggleStatus = async () => {
     setProcessing(true);
     try {
@@ -213,7 +210,6 @@ export default function Workers() {
     }
   };
 
-  // Update worker details
   const updateWorker = async () => {
     setProcessing(true);
     try {
@@ -239,7 +235,7 @@ export default function Workers() {
     }
   };
 
-  // Delete worker
+
   const deleteWorker = async () => {
     setProcessing(true);
     try {
@@ -266,7 +262,6 @@ export default function Workers() {
     }
   };
 
-  // Download QR code with worker info
   const downloadQRCode = () => {
     if (!qrRef.current || !selectedWorker) return;
     
@@ -277,31 +272,34 @@ export default function Workers() {
     const img = new Image();
     
     img.onload = () => {
-      // Increase canvas size for QR + text
+     
       canvas.width = 400;
       canvas.height = 480;
       
-      // White background
+    
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      // Draw QR code
+      
       ctx.drawImage(img, 50, 20, 300, 300);
       
-      // Add worker name
+     
       ctx.fillStyle = 'black';
       ctx.font = 'bold 20px Arial';
       ctx.textAlign = 'center';
       ctx.fillText(selectedWorker.name, 200, 350);
       
-      // Add ministry
+    
       ctx.font = '16px Arial';
       ctx.fillText(selectedWorker.ministry, 200, 380);
       
-      // Add instruction
+     
       ctx.font = '12px Arial';
       ctx.fillStyle = '#666';
-      ctx.fillText('Scan with camera to check in', 200, 420);
+      ctx.fillText(`ID: ${selectedWorker.qr_value}`, 200, 400);
+      
+      
+      ctx.fillText('Scan to check in', 200, 420);
       
       const pngFile = canvas.toDataURL('image/png');
       const downloadLink = document.createElement('a');
@@ -313,7 +311,7 @@ export default function Workers() {
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
-  // Clear all filters
+  
   const clearFilters = () => {
     setSearchTerm('');
     setFilterMinistry('');
@@ -321,10 +319,20 @@ export default function Workers() {
     setSortOption('newest');
   };
 
+
+  const getQRCodeValue = (worker) => {
+    return worker.qr_value; 
+  };
+
+  
+  const testQRCode = (worker) => {
+    alert(`Scanner will read:\n\n${worker.qr_value}\n\nThis should match exactly what's in the database.`);
+  };
+
   return (
     <SidebarLayout>
       <div className="p-6">
-        {/* Header */}
+      
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Workers Management</h1>
@@ -334,15 +342,15 @@ export default function Workers() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
             + Add Worker
           </button>
         </div>
 
-        {/* Filters and Search */}
+      
         <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          {/* Search Input */}
+       
           <input
             type="text"
             placeholder="Search by name..."
@@ -351,13 +359,13 @@ export default function Workers() {
             className="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
-          {/* Filters */}
+       
           <div className="flex flex-wrap items-center gap-3">
-            {/* Sort Option */}
+         
             <select
               value={sortOption}
               onChange={(e) => setSortOption(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="cursor-pointer px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="newest">Newest Added</option>
               <option value="oldest">Oldest Added</option>
@@ -365,11 +373,11 @@ export default function Workers() {
               <option value="za">Sort Z–A</option>
             </select>
 
-            {/* Ministry Filter */}
+       
             <select
               value={filterMinistry}
               onChange={(e) => setFilterMinistry(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="cursor-pointer px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Ministries</option>
               {MINISTRIES.map((ministry) => (
@@ -379,18 +387,18 @@ export default function Workers() {
               ))}
             </select>
 
-            {/* Status Filter */}
+      
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="cursor-pointer px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Status</option>
               <option value="Active">Active</option>
               <option value="Suspended">Suspended</option>
             </select>
 
-            {/* Clear Filters Button */}
+        
             {(searchTerm || filterMinistry || filterStatus || sortOption !== 'newest') && (
               <button
                 onClick={clearFilters}
@@ -402,7 +410,7 @@ export default function Workers() {
           </div>
         </div>
 
-        {/* Workers Table */}
+      
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-20">
@@ -422,8 +430,9 @@ export default function Workers() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">QR</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ministry</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Number</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">QR ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Added</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                     </tr>
@@ -432,15 +441,18 @@ export default function Workers() {
                     {workers.map((worker) => (
                       <tr key={worker.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <button
-                            onClick={() => {
-                              setSelectedWorker(worker);
-                              setShowQRModal(true);
-                            }}
-                            className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-sm transition-all"
-                          >
-                            View QR
-                          </button>
+                          <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => {
+                                setSelectedWorker(worker);
+                                setShowQRModal(true);
+                              }}
+                              className="cursor-pointer text-blue-600 hover:text-blue-800 hover:underline font-medium text-sm transition-all"
+                            >
+                              View QR
+                            </button>
+                            
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{worker.name}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{worker.ministry}</td>
@@ -460,6 +472,11 @@ export default function Workers() {
                             {worker.status}
                           </button>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">
+                            {worker.qr_value?.substring(0, 15)}...
+                          </code>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {new Date(worker.created_at).toLocaleDateString()}
                         </td>
@@ -475,7 +492,7 @@ export default function Workers() {
                                 });
                                 setShowEditModal(true);
                               }}
-                              className="text-yellow-600 hover:text-yellow-800 hover:underline font-medium transition-all"
+                              className="cursor-pointer text-yellow-600 hover:text-yellow-800 hover:underline font-medium transition-all"
                             >
                               Edit
                             </button>
@@ -485,7 +502,7 @@ export default function Workers() {
                                 setSelectedWorker(worker);
                                 setShowDeleteModal(true);
                               }}
-                              className="text-red-600 hover:text-red-800 hover:underline font-medium transition-all"
+                              className="cursor-pointer text-red-600 hover:text-red-800 hover:underline font-medium transition-all"
                             >
                               Delete
                             </button>
@@ -497,12 +514,12 @@ export default function Workers() {
                 </table>
               </div>
 
-              {/* Pagination */}
+             
               <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t border-gray-200">
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
@@ -512,7 +529,7 @@ export default function Workers() {
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages || totalPages === 0}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
@@ -521,7 +538,7 @@ export default function Workers() {
           )}
         </div>
 
-        {/* Add Worker Modal */}
+    
         {showAddModal && (
           <Modal onClose={() => setShowAddModal(false)} title="Add New Worker">
             <div className="space-y-4">
@@ -559,7 +576,7 @@ export default function Workers() {
                   name="ministry"
                   value={formData.ministry}
                   onChange={handleFormChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  className={`cursor-pointer w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     formErrors.ministry ? 'border-red-500' : 'border-gray-300'
                   }`}
                 >
@@ -572,7 +589,7 @@ export default function Workers() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contact *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number *</label>
                 <input
                   type="text"
                   name="contact"
@@ -591,7 +608,7 @@ export default function Workers() {
                   name="status"
                   value={formData.status}
                   onChange={handleFormChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Active">Active</option>
                   <option value="Suspended">Suspended</option>
@@ -601,13 +618,13 @@ export default function Workers() {
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                 className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAddWorkerClick}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="cursor-pointer not-first-of-type:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                   Add Worker
                 </button>
@@ -616,7 +633,6 @@ export default function Workers() {
           </Modal>
         )}
 
-        {/* Confirm Worker Details Modal */}
         {showConfirmModal && (
           <Modal onClose={() => setShowConfirmModal(false)} title="Confirm Worker Details">
             <div className="space-y-3">
@@ -626,12 +642,13 @@ export default function Workers() {
                 <p><span className="font-medium">Ministry:</span> {formData.ministry}</p>
                 <p><span className="font-medium">Contact:</span> {formData.contact}</p>
                 <p><span className="font-medium">Status:</span> {formData.status}</p>
+                <p><span className="font-medium">QR ID:</span> {generateQRValue()}</p>
               </div>
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   onClick={() => setShowConfirmModal(false)}
                   disabled={processing}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
                 >
                   Cancel
                 </button>
@@ -647,7 +664,6 @@ export default function Workers() {
           </Modal>
         )}
 
-        {/* QR Code Modal */}
         {showQRModal && selectedWorker && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
@@ -655,7 +671,7 @@ export default function Workers() {
                 <h2 className="text-lg font-semibold text-gray-800">QR Code - {selectedWorker.name}</h2>
                 <button
                   onClick={() => setShowQRModal(false)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                  className=" cursor-pointer text-gray-400 hover:text-gray-600 text-2xl leading-none"
                 >
                   ×
                 </button>
@@ -664,31 +680,30 @@ export default function Workers() {
                 <div className="flex flex-col items-center space-y-4">
                   <div ref={qrRef} className="bg-white p-6 rounded-lg border-2 border-gray-200">
                     <QRCodeSVG 
-                      value={generateFullQRUrl(selectedWorker.qr_value)}
+                      value={selectedWorker.qr_value}  
                       size={256}
                       level="H"
                       includeMargin={true}
                     />
                   </div>
                   <div className="text-center">
-                    <p className="text-sm text-gray-600 mb-1">Scan this QR code or visit:</p>
-                    <p className="text-xs font-mono bg-gray-100 px-3 py-2 rounded break-all">
-                      {generateFullQRUrl(selectedWorker.qr_value)}
+                    <p className="font-medium text-gray-800">{selectedWorker.name}</p>
+                    <p className="text-sm text-gray-600">{selectedWorker.ministry}</p>
+                    <p className="text-xs font-mono bg-gray-100 px-3 py-2 rounded break-all mt-2">
+                      {selectedWorker.qr_value}
                     </p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      Worker ID: {selectedWorker.qr_value}
-                    </p>
+                   
                   </div>
                   <div className="flex space-x-3 w-full">
                     <button
                       onClick={downloadQRCode}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      className="cursor-pointer flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       Download QR
                     </button>
                     <button
                       onClick={() => setShowQRModal(false)}
-                      className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                      className="cursor-pointer flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                     >
                       Close
                     </button>
@@ -699,7 +714,7 @@ export default function Workers() {
           </div>
         )}
 
-        {/* Status Change Modal */}
+      
         {showStatusModal && selectedWorker && (
           <Modal onClose={() => setShowStatusModal(false)} title="Confirm Status Change">
             <div className="space-y-4">
@@ -712,7 +727,7 @@ export default function Workers() {
                 <button
                   onClick={() => setShowStatusModal(false)}
                   disabled={processing}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
                 >
                   Cancel
                 </button>
@@ -728,7 +743,7 @@ export default function Workers() {
           </Modal>
         )}
 
-        {/* Edit Worker Modal */}
+    
         {showEditModal && selectedWorker && (
           <Modal onClose={() => setShowEditModal(false)} title={`Edit Worker - ${selectedWorker.name}`}>
             <div className="space-y-4">
@@ -747,7 +762,7 @@ export default function Workers() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contact *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number *</label>
                 <input
                   type="text"
                   value={editData.contact}
@@ -772,14 +787,14 @@ export default function Workers() {
                 <button
                   onClick={() => setShowEditModal(false)}
                   disabled={processing}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={updateWorker}
                   disabled={processing}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {processing ? 'Updating...' : 'Update Worker'}
                 </button>
@@ -788,7 +803,7 @@ export default function Workers() {
           </Modal>
         )}
 
-        {/* Delete Worker Modal */}
+       
         {showDeleteModal && selectedWorker && (
           <Modal onClose={() => setShowDeleteModal(false)} title="Confirm Deletion">
             <div className="space-y-4">
@@ -799,14 +814,14 @@ export default function Workers() {
                 <button
                   onClick={() => setShowDeleteModal(false)}
                   disabled={processing}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={deleteWorker}
                   disabled={processing}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                  className="cursor-pointer px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-900 hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {processing ? 'Deleting...' : 'Delete Worker'}
                 </button>
@@ -819,7 +834,7 @@ export default function Workers() {
   );
 }
 
-// Modal Component
+
 function Modal({ children, onClose, title }) {
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -828,7 +843,7 @@ function Modal({ children, onClose, title }) {
           <h2 className="text-lg font-semibold text-gray-800">{title}</h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+            className="cursor-pointer text-gray-400 hover:text-gray-600 text-2xl leading-none"
           >
             ×
           </button>

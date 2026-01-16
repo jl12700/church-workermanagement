@@ -47,7 +47,7 @@ const SidebarLayout = ({ children }) => {
             {/* Changed from NavLink to button to trigger the modal */}
             <button
               onClick={() => setIsLogoutModalOpen(true)}
-              className="text-sm text-red-400 font-medium hover:text-red-600 hover:bg-red-500/10 w-60 h-10 rounded-l-lg flex items-center px-4 transition-colors"
+              className="cursor-pointer text-sm text-red-400 font-medium hover:text-red-600 hover:bg-red-500/10 w-60 h-10 rounded-l-lg flex items-center px-4 transition-colors"
             >
               <LogoutIcon className="mr-4" />
               Logout

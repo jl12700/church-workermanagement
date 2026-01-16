@@ -36,13 +36,13 @@ const handleLogout = async () => {
         <div className="mt-8 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="rounded-lg px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all dark:text-gray-300 dark:hover:bg-gray-700"
+            className="cursor-pointer rounded-lg px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all dark:text-gray-300 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
           <button
             onClick={handleLogout}
-            className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 shadow-md shadow-red-500/20 transition-all active:scale-95"
+            className="cursor-pointer rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-red-500/20 transition-all active:scale-95 hover:bg-red-700 hover:outline hover:outline-2 hover:outline-offset-2 hover:outline-red-500"
           >
             Logout
           </button>

@@ -8,6 +8,7 @@ import Calendar from './pages/Calender'
 import Reports from './pages/Reports'
 import CheckIn from './pages/CheckIn'
 import ProtectedRoute from './pages/ProtectedRoute'
+import Scanner from './pages/Scanner'
 
 function App() {
   return (
@@ -22,7 +23,7 @@ function App() {
         <Route path='/attendance' element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
         <Route path='/calendar' element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
         <Route path='/reports' element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-        
+        <Route path='/scanner' element={<Scanner />} />
        
         <Route path='/checkin/:qrValue' element={<CheckIn />} /> 
       </Routes>
