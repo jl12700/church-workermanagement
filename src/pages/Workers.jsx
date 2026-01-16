@@ -432,7 +432,7 @@ export default function Workers() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ministry</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact Number</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">QR ID</th>
+                      
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Added</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                     </tr>
@@ -472,11 +472,7 @@ export default function Workers() {
                             {worker.status}
                           </button>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono">
-                            {worker.qr_value?.substring(0, 15)}...
-                          </code>
-                        </td>
+                        
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {new Date(worker.created_at).toLocaleDateString()}
                         </td>
