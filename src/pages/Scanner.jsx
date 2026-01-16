@@ -13,6 +13,7 @@ export default function Scanner() {
   const html5QrCodeRef = useRef(null);
   const scanCooldownRef = useRef(false);
   const lastScannedRef = useRef('');
+  const resumeTimeoutRef = useRef(null);
 
   const fetchTodayCount = async () => {
     try {
@@ -29,21 +30,20 @@ export default function Scanner() {
 
   useEffect(() => {
     fetchTodayCount();
-    
-    
     initCamera();
     
     return () => {
       stopScanner();
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+      }
     };
   }, []);
 
   const initCamera = async () => {
     try {
-     
       const devices = await Html5Qrcode.getCameras();
       if (devices && devices.length) {
-        
         const backCamera = devices.find(device => 
           device.label.toLowerCase().includes('back') ||
           device.label.toLowerCase().includes('rear') ||
@@ -78,20 +78,12 @@ export default function Scanner() {
           qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
           disableFlip: false,
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: false
-          }
         },
         (decodedText) => {
           onScanSuccess(decodedText);
         },
-        (errorMessage) => {
-          
-        }
-      ).catch(err => {
-        console.error('Scanner start failed:', err);
-        handleFeedback('Failed to start camera', 'error');
-      });
+        () => {}
+      );
 
       setIsScanning(true);
       scanCooldownRef.current = false;
@@ -104,7 +96,6 @@ export default function Scanner() {
     try {
       if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
         await html5QrCodeRef.current.stop();
-        html5QrCodeRef.current.clear();
       }
       setIsScanning(false);
       scanCooldownRef.current = false;
@@ -113,23 +104,13 @@ export default function Scanner() {
     }
   };
 
-  const toggleScanner = () => {
-    if (isScanning) {
-      stopScanner();
-    } else if (cameraId) {
-      startScanner(cameraId);
-    } else {
-      initCamera();
-    }
-  };
-
   const onScanSuccess = async (decodedText) => {
-    
+
     if (processing || scanCooldownRef.current) return;
     
-    
     const now = Date.now();
-    if (lastScannedRef.current === decodedText && (now - lastScannedRef.current.timestamp) < 3000) {
+    if (lastScannedRef.current.text === decodedText && 
+        (now - lastScannedRef.current.timestamp) < 3000) {
       return;
     }
     
@@ -144,10 +125,6 @@ export default function Scanner() {
 
     try {
       
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        await html5QrCodeRef.current.pause(true);
-      }
-
       const { data: workers, error: workerError } = await supabase
         .from('workers')
         .select('*')
@@ -193,24 +170,17 @@ export default function Scanner() {
       console.error('Scan error:', e);
       handleFeedback('Error saving scan', 'error');
     } finally {
-      setProcessing(false);
+    
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+      }
       
-      
-      setTimeout(async () => {
+      resumeTimeoutRef.current = setTimeout(() => {
+        setProcessing(false);
         scanCooldownRef.current = false;
         lastScannedRef.current = '';
         
-        if (html5QrCodeRef.current && !html5QrCodeRef.current.isScanning) {
-          try {
-            await html5QrCodeRef.current.resume();
-          } catch (err) {
-            
-            console.log('Resume failed, restarting scanner...');
-            if (cameraId) {
-              await startScanner(cameraId);
-            }
-          }
-        }
+       
       }, 3000);
     }
   };
@@ -272,19 +242,9 @@ export default function Scanner() {
             </span>
           </div>
           
-          <button 
-            onClick={toggleScanner}
-            disabled={processing}
-            className={`px-4 py-2 text-white text-sm font-bold rounded-xl transition-colors ${
-              processing 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : isScanning 
-                  ? 'bg-red-600 hover:bg-red-700' 
-                  : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {processing ? 'Processing...' : isScanning ? 'Stop Camera' : 'Start Camera'}
-          </button>
+          <div className="text-xs text-gray-500">
+            {processing && 'Auto-reset in 3s'}
+          </div>
         </div>
       </div>
 
@@ -295,7 +255,7 @@ export default function Scanner() {
             : 'bg-gray-100 text-gray-600 border border-gray-200'
         }`}>
           {processing 
-            ? '✓ QR code scanned. Processing attendance...' 
+            ? '✓ QR code scanned. Ready for next scan in 3 seconds...' 
             : '↑ Position QR code inside the frame'}
         </div>
       </div>
