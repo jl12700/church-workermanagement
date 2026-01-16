@@ -49,12 +49,18 @@ export default function Workers() {
     'Comrades'
   ];
 
-
+  // Generate unique QR value
   const generateQRValue = () => {
     return `WORKER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`.toUpperCase();
   };
 
- 
+  // Generate full URL for QR codes
+  const generateFullQRUrl = (qrValue) => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/checkin/${qrValue}`;
+  };
+
+  // Fetch workers with filters
   const fetchWorkers = async (page = 1) => {
     setLoading(true);
     try {
@@ -69,17 +75,14 @@ export default function Workers() {
         query = query.or(`name.ilike.%${searchTerm}%,ministry.ilike.%${searchTerm}%,contact.ilike.%${searchTerm}%`);
       }
       
-      
       if (filterMinistry) {
         query = query.eq('ministry', filterMinistry);
       }
       
-     
       if (filterStatus) {
         query = query.eq('status', filterStatus);
       }
       
-     
       switch (sortOption) {
         case 'az':
           query = query.order('name', { ascending: true });
@@ -114,7 +117,7 @@ export default function Workers() {
   };
 
   useEffect(() => {
-    setCurrentPage(1); 
+    setCurrentPage(1);
     fetchWorkers(1);
   }, [searchTerm, filterMinistry, filterStatus, sortOption]);
 
@@ -122,7 +125,7 @@ export default function Workers() {
     fetchWorkers(currentPage);
   }, [currentPage]);
 
-
+  // Form validation
   const validateForm = () => {
     const errors = {};
     if (!formData.first_name.trim()) errors.first_name = 'First name is required';
@@ -130,7 +133,6 @@ export default function Workers() {
     if (!formData.ministry) errors.ministry = 'Ministry is required';
     if (!formData.contact.trim()) errors.contact = 'Contact is required';
     
-  
     if (/\d/.test(formData.first_name)) errors.first_name = 'First name cannot contain numbers';
     if (/\d/.test(formData.last_name)) errors.last_name = 'Last name cannot contain numbers';
     
@@ -138,7 +140,7 @@ export default function Workers() {
     return Object.keys(errors).length === 0;
   };
 
-
+  // Handle form changes
   const handleFormChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -147,14 +149,14 @@ export default function Workers() {
     }
   };
 
- 
+  // Handle add worker click
   const handleAddWorkerClick = () => {
     if (validateForm()) {
       setShowConfirmModal(true);
     }
   };
 
-
+  // Save worker to database
   const saveWorker = async () => {
     setProcessing(true);
     try {
@@ -177,7 +179,6 @@ export default function Workers() {
       setShowAddModal(false);
       setFormData({ first_name: '', last_name: '', ministry: '', contact: '', status: 'Active' });
       
-
       setCurrentPage(1);
       fetchWorkers(1);
     } catch (error) {
@@ -188,7 +189,7 @@ export default function Workers() {
     }
   };
 
-
+  // Toggle worker status
   const toggleStatus = async () => {
     setProcessing(true);
     try {
@@ -212,7 +213,7 @@ export default function Workers() {
     }
   };
 
-
+  // Update worker details
   const updateWorker = async () => {
     setProcessing(true);
     try {
@@ -238,7 +239,7 @@ export default function Workers() {
     }
   };
 
-
+  // Delete worker
   const deleteWorker = async () => {
     setProcessing(true);
     try {
@@ -265,7 +266,7 @@ export default function Workers() {
     }
   };
 
-
+  // Download QR code with worker info
   const downloadQRCode = () => {
     if (!qrRef.current || !selectedWorker) return;
     
@@ -276,9 +277,31 @@ export default function Workers() {
     const img = new Image();
     
     img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
+      // Increase canvas size for QR + text
+      canvas.width = 400;
+      canvas.height = 480;
+      
+      // White background
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw QR code
+      ctx.drawImage(img, 50, 20, 300, 300);
+      
+      // Add worker name
+      ctx.fillStyle = 'black';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(selectedWorker.name, 200, 350);
+      
+      // Add ministry
+      ctx.font = '16px Arial';
+      ctx.fillText(selectedWorker.ministry, 200, 380);
+      
+      // Add instruction
+      ctx.font = '12px Arial';
+      ctx.fillStyle = '#666';
+      ctx.fillText('Scan with camera to check in', 200, 420);
       
       const pngFile = canvas.toDataURL('image/png');
       const downloadLink = document.createElement('a');
@@ -290,7 +313,7 @@ export default function Workers() {
     img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
   };
 
-
+  // Clear all filters
   const clearFilters = () => {
     setSearchTerm('');
     setFilterMinistry('');
@@ -301,7 +324,7 @@ export default function Workers() {
   return (
     <SidebarLayout>
       <div className="p-6">
-   
+        {/* Header */}
         <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">Workers Management</h1>
@@ -317,9 +340,9 @@ export default function Workers() {
           </button>
         </div>
 
-        
+        {/* Filters and Search */}
         <div className="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          
+          {/* Search Input */}
           <input
             type="text"
             placeholder="Search by name..."
@@ -328,9 +351,9 @@ export default function Workers() {
             className="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
-        
+          {/* Filters */}
           <div className="flex flex-wrap items-center gap-3">
-      
+            {/* Sort Option */}
             <select
               value={sortOption}
               onChange={(e) => setSortOption(e.target.value)}
@@ -342,7 +365,7 @@ export default function Workers() {
               <option value="za">Sort Z–A</option>
             </select>
 
-          
+            {/* Ministry Filter */}
             <select
               value={filterMinistry}
               onChange={(e) => setFilterMinistry(e.target.value)}
@@ -356,7 +379,7 @@ export default function Workers() {
               ))}
             </select>
 
-            
+            {/* Status Filter */}
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -367,7 +390,7 @@ export default function Workers() {
               <option value="Suspended">Suspended</option>
             </select>
 
-          
+            {/* Clear Filters Button */}
             {(searchTerm || filterMinistry || filterStatus || sortOption !== 'newest') && (
               <button
                 onClick={clearFilters}
@@ -379,7 +402,7 @@ export default function Workers() {
           </div>
         </div>
 
-       
+        {/* Workers Table */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center py-20">
@@ -474,7 +497,7 @@ export default function Workers() {
                 </table>
               </div>
 
-             
+              {/* Pagination */}
               <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t border-gray-200">
                 <button
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
@@ -498,7 +521,7 @@ export default function Workers() {
           )}
         </div>
 
-       
+        {/* Add Worker Modal */}
         {showAddModal && (
           <Modal onClose={() => setShowAddModal(false)} title="Add New Worker">
             <div className="space-y-4">
@@ -593,7 +616,7 @@ export default function Workers() {
           </Modal>
         )}
 
-        
+        {/* Confirm Worker Details Modal */}
         {showConfirmModal && (
           <Modal onClose={() => setShowConfirmModal(false)} title="Confirm Worker Details">
             <div className="space-y-3">
@@ -624,7 +647,7 @@ export default function Workers() {
           </Modal>
         )}
 
-    
+        {/* QR Code Modal */}
         {showQRModal && selectedWorker && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
@@ -641,15 +664,20 @@ export default function Workers() {
                 <div className="flex flex-col items-center space-y-4">
                   <div ref={qrRef} className="bg-white p-6 rounded-lg border-2 border-gray-200">
                     <QRCodeSVG 
-                      value={selectedWorker.qr_value} 
+                      value={generateFullQRUrl(selectedWorker.qr_value)}
                       size={256}
                       level="H"
                       includeMargin={true}
                     />
                   </div>
                   <div className="text-center">
-                    <p className="text-sm text-gray-600">Worker ID:</p>
-                    <p className="text-xs font-mono bg-gray-100 px-3 py-1 rounded mt-1">{selectedWorker.qr_value}</p>
+                    <p className="text-sm text-gray-600 mb-1">Scan this QR code or visit:</p>
+                    <p className="text-xs font-mono bg-gray-100 px-3 py-2 rounded break-all">
+                      {generateFullQRUrl(selectedWorker.qr_value)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Worker ID: {selectedWorker.qr_value}
+                    </p>
                   </div>
                   <div className="flex space-x-3 w-full">
                     <button
@@ -671,6 +699,7 @@ export default function Workers() {
           </div>
         )}
 
+        {/* Status Change Modal */}
         {showStatusModal && selectedWorker && (
           <Modal onClose={() => setShowStatusModal(false)} title="Confirm Status Change">
             <div className="space-y-4">
@@ -699,6 +728,7 @@ export default function Workers() {
           </Modal>
         )}
 
+        {/* Edit Worker Modal */}
         {showEditModal && selectedWorker && (
           <Modal onClose={() => setShowEditModal(false)} title={`Edit Worker - ${selectedWorker.name}`}>
             <div className="space-y-4">
@@ -758,6 +788,7 @@ export default function Workers() {
           </Modal>
         )}
 
+        {/* Delete Worker Modal */}
         {showDeleteModal && selectedWorker && (
           <Modal onClose={() => setShowDeleteModal(false)} title="Confirm Deletion">
             <div className="space-y-4">
@@ -788,6 +819,7 @@ export default function Workers() {
   );
 }
 
+// Modal Component
 function Modal({ children, onClose, title }) {
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
