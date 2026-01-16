@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import SidebarLayout from '../layout/sidebar';
+import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
 
 export default function Workers() {

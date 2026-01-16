@@ -1,6 +1,5 @@
-// pages/Dashboard.jsx
 import React from "react";
-import SidebarLayout from "../layout/sidebar";
+import SidebarLayout from "../layout/Sidebar";
 
 const Dashboard = () => {
   return (
