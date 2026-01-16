@@ -1,5 +1,5 @@
 import React, { useState } from "react"; // Added useState
-import Topbar from "./topbar";
+import Topbar from "./Topbar";
 import { NavLink } from "react-router-dom";
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import PeopleAltIcon from '@mui/icons-material/PeopleAlt';
