@@ -7,18 +7,24 @@ import Attendance from './pages/Attendance'
 import Calendar from './pages/Calender'
 import Reports from './pages/Reports'
 import CheckIn from './pages/CheckIn'
+import ProtectedRoute from './pages/ProtectedRoute'
 
 function App() {
   return (
     <Router>
       <Routes>
+        
         <Route path='/' element={<Login />} />
-        <Route path='/dashboard' element={<Dashboard />} />
-        <Route path='/worker-list' element={<Workers />} />
-        <Route path='/attendance' element={<Attendance />} />
-        <Route path='/checkin/:qrValue' element={<CheckIn />} /> {/* ✅ */}
-        <Route path='/calendar' element={<Calendar />} />
-        <Route path='/reports' element={<Reports />} />
+
+      
+        <Route path='/dashboard' element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path='/worker-list' element={<ProtectedRoute><Workers /></ProtectedRoute>} />
+        <Route path='/attendance' element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
+        <Route path='/calendar' element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+        <Route path='/reports' element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+        
+       
+        <Route path='/checkin/:qrValue' element={<CheckIn />} /> 
       </Routes>
     </Router>
   )
