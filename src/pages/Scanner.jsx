@@ -11,6 +11,8 @@ export default function Scanner() {
   const [cameraId, setCameraId] = useState(null);
   
   const html5QrCodeRef = useRef(null);
+  const scanCooldownRef = useRef(false);
+  const lastScannedRef = useRef('');
 
   const fetchTodayCount = async () => {
     try {
@@ -28,7 +30,7 @@ export default function Scanner() {
   useEffect(() => {
     fetchTodayCount();
     
-    // Get camera permissions and start scanner
+    
     initCamera();
     
     return () => {
@@ -38,10 +40,10 @@ export default function Scanner() {
 
   const initCamera = async () => {
     try {
-      // Get available cameras
+     
       const devices = await Html5Qrcode.getCameras();
       if (devices && devices.length) {
-        // Prefer rear camera on mobile
+        
         const backCamera = devices.find(device => 
           device.label.toLowerCase().includes('back') ||
           device.label.toLowerCase().includes('rear') ||
@@ -76,13 +78,15 @@ export default function Scanner() {
           qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
           disableFlip: false,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: false
+          }
         },
         (decodedText) => {
           onScanSuccess(decodedText);
         },
         (errorMessage) => {
-          // Optional: Handle scan errors
-          // console.log('Scan error:', errorMessage);
+          
         }
       ).catch(err => {
         console.error('Scanner start failed:', err);
@@ -90,6 +94,7 @@ export default function Scanner() {
       });
 
       setIsScanning(true);
+      scanCooldownRef.current = false;
     } catch (err) {
       console.error('Scanner error:', err);
     }
@@ -102,6 +107,7 @@ export default function Scanner() {
         html5QrCodeRef.current.clear();
       }
       setIsScanning(false);
+      scanCooldownRef.current = false;
     } catch (err) {
       console.error('Stop scanner error:', err);
     }
@@ -118,14 +124,28 @@ export default function Scanner() {
   };
 
   const onScanSuccess = async (decodedText) => {
-    if (processing) return;
+    
+    if (processing || scanCooldownRef.current) return;
+    
+    
+    const now = Date.now();
+    if (lastScannedRef.current === decodedText && (now - lastScannedRef.current.timestamp) < 3000) {
+      return;
+    }
+    
+    scanCooldownRef.current = true;
+    lastScannedRef.current = {
+      text: decodedText,
+      timestamp: now
+    };
+    
     setProcessing(true);
     handleFeedback('Processing...', 'processing');
 
     try {
-      // Optional: Pause scanning while processing
-      if (html5QrCodeRef.current) {
-        await html5QrCodeRef.current.pause();
+      
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        await html5QrCodeRef.current.pause(true);
       }
 
       const { data: workers, error: workerError } = await supabase
@@ -134,13 +154,27 @@ export default function Scanner() {
         .eq('qr_value', decodedText)
         .single();
 
-      if (workerError || !workers) return handleFeedback('QR Not Recognized', 'error');
-      if (workers.status === 'Suspended') return handleFeedback(`${workers.name} is Suspended`, 'error');
+      if (workerError || !workers) {
+        handleFeedback('QR Not Recognized', 'error');
+        return;
+      }
+      
+      if (workers.status === 'Suspended') {
+        handleFeedback(`${workers.name} is Suspended`, 'error');
+        return;
+      }
 
       const today = new Date().toISOString().split('T')[0];
-      const { data: existing } = await supabase.from('attendance').select('*').eq('worker_id', workers.id).eq('date', today);
+      const { data: existing } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('worker_id', workers.id)
+        .eq('date', today);
 
-      if (existing?.length > 0) return handleFeedback(`${workers.name} already checked in`, 'warning');
+      if (existing?.length > 0) {
+        handleFeedback(`${workers.name} already checked in`, 'warning');
+        return;
+      }
 
       const { error: insertError } = await supabase.from('attendance').insert([{
         worker_id: workers.id,
@@ -156,16 +190,28 @@ export default function Scanner() {
       handleFeedback(`Success: ${workers.name}`, 'success');
       fetchTodayCount();
     } catch (e) {
+      console.error('Scan error:', e);
       handleFeedback('Error saving scan', 'error');
     } finally {
       setProcessing(false);
       
-      // Resume scanning after 1 second
+      
       setTimeout(async () => {
+        scanCooldownRef.current = false;
+        lastScannedRef.current = '';
+        
         if (html5QrCodeRef.current && !html5QrCodeRef.current.isScanning) {
-          await html5QrCodeRef.current.resume();
+          try {
+            await html5QrCodeRef.current.resume();
+          } catch (err) {
+            
+            console.log('Resume failed, restarting scanner...');
+            if (cameraId) {
+              await startScanner(cameraId);
+            }
+          }
         }
-      }, 1000);
+      }, 3000);
     }
   };
 
@@ -211,25 +257,46 @@ export default function Scanner() {
               <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-500 rounded-sm"></div>
               <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-sm"></div>
               
-              {isScanning && <div className="absolute left-0 w-full h-[2px] bg-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.5)] animate-scan"></div>}
+              {isScanning && !processing && (
+                <div className="absolute left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-green-500 to-transparent shadow-[0_0_15px_rgba(34,197,94,0.8)] animate-scan"></div>
+              )}
             </div>
           </div>
         </div>
 
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${isScanning ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+            <span className={`w-2 h-2 rounded-full ${processing ? 'bg-yellow-500 animate-pulse' : isScanning ? 'bg-green-500' : 'bg-gray-300'}`}></span>
             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              {isScanning ? 'Scanner Ready' : 'Initializing...'}
+              {processing ? 'Processing...' : isScanning ? 'Ready to Scan' : 'Initializing...'}
             </span>
           </div>
           
           <button 
             onClick={toggleScanner}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors"
+            disabled={processing}
+            className={`px-4 py-2 text-white text-sm font-bold rounded-xl transition-colors ${
+              processing 
+                ? 'bg-gray-400 cursor-not-allowed' 
+                : isScanning 
+                  ? 'bg-red-600 hover:bg-red-700' 
+                  : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
-            {isScanning ? 'Stop Camera' : 'Start Camera'}
+            {processing ? 'Processing...' : isScanning ? 'Stop Camera' : 'Start Camera'}
           </button>
+        </div>
+      </div>
+
+      <div className="mt-6 text-center max-w-sm">
+        <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
+          processing 
+            ? 'bg-yellow-100 text-yellow-800 border border-yellow-200' 
+            : 'bg-gray-100 text-gray-600 border border-gray-200'
+        }`}>
+          {processing 
+            ? '✓ QR code scanned. Processing attendance...' 
+            : '↑ Position QR code inside the frame'}
         </div>
       </div>
 
