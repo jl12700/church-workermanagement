@@ -36,10 +36,15 @@ const EventCalendar = () => {
     return { daysInMonth, startingDayOfWeek };
   };
 
-  const getEventsForDate = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    return events.filter(event => event.event_date === dateStr);
-  };
+const getEventsForDate = (date) => {
+  // This creates a YYYY-MM-DD string using local time
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const localDateStr = `${year}-${month}-${day}`;
+
+  return events.filter(event => event.event_date === localDateStr);
+};
 
   const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentDate);
   const monthYear = currentDate.toLocaleDateString('en-US', {
@@ -115,24 +120,23 @@ const handleDeleteEvent = async () => {
       
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Calendar className="w-6 h-6 text-blue-600" />
           <h2 className="text-2xl font-bold text-gray-800">Event Calendar</h2>
         </div>
         <button
           onClick={handleNewEvent}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+          className="cursor-pointer ml-auto flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
         >
           <Plus className="w-4 h-4" />
-          New Event
+          Create Event
         </button>
       </div>
 
       <div className="flex items-center justify-between mb-4">
-        <button onClick={previousMonth} className="p-2 hover:bg-gray-100 rounded-lg transition">
+        <button onClick={previousMonth} className="cursor-pointer p-2 hover:bg-gray-100 rounded-lg transition">
           <ChevronLeft className="w-5 h-5" />
         </button>
         <h3 className="text-xl font-semibold">{monthYear}</h3>
-        <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg transition">
+        <button onClick={nextMonth} className="cursor-pointer p-2 hover:bg-gray-100 rounded-lg transition">
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>

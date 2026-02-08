@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../database/supabase';
-import { eventService } from '../database/supabaseEvents';
 
 export default function Scanner() {
   const [scanMessage, setScanMessage] = useState('');
@@ -21,36 +20,27 @@ export default function Scanner() {
   const lastScannedRef = useRef('');
   const resumeTimeoutRef = useRef(null);
 
-  // Fetch today's total attendance count
-  const fetchTodayCount = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const { count } = await supabase
-        .from('attendance')
-        .select('*', { count: 'exact', head: true })
-        .eq('date', today);
-      setTodayCount(count || 0);
-    } catch (error) {
-      console.error('Error fetching count:', error);
-    }
-  };
-
   // Fetch today's events
   const fetchTodayEvents = async () => {
     try {
-      const { data, error } = await eventService.getTodayEvents();
+      const today = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('event_date', today)
+        .eq('status', 'approved')
+        .order('start_time', { ascending: true });
+      
       if (error) throw error;
       
       if (data && data.length > 0) {
-        // Filter only approved events
-        const approvedEvents = data.filter(event => event.status === 'approved');
-        setTodayEvents(approvedEvents);
+        setTodayEvents(data);
         
         // Auto-select if only one event
-        if (approvedEvents.length === 1) {
-          setSelectedEvent(approvedEvents[0]);
+        if (data.length === 1) {
+          setSelectedEvent(data[0]);
           setShowEventSelector(false);
-        } else if (approvedEvents.length > 1) {
+        } else if (data.length > 1) {
           setShowEventSelector(true);
         }
       } else {
@@ -66,7 +56,11 @@ export default function Scanner() {
   const getEventAttendanceCount = async (eventId) => {
     if (!eventId) return 0;
     try {
-      const { data } = await eventService.getEventAttendance(eventId);
+      const { data } = await supabase
+        .from('event_attendance')
+        .select('*', { count: 'exact', head: true })
+        .eq('event_id', eventId);
+      
       return data?.length || 0;
     } catch (error) {
       console.error('Error fetching event attendance:', error);
@@ -75,7 +69,6 @@ export default function Scanner() {
   };
 
   useEffect(() => {
-    fetchTodayCount();
     fetchTodayEvents();
     initCamera();
     
@@ -184,89 +177,57 @@ export default function Scanner() {
     handleFeedback('Processing...', 'processing');
 
     try {
-      // Check if there's an event selected
-      if (todayEvents.length > 0 && !selectedEvent) {
-        handleFeedback('Please select an event first', 'warning');
+      // CRITICAL: Must have an event selected
+      if (!selectedEvent) {
+        handleFeedback('No event selected. Please select an event first.', 'warning');
         return;
       }
 
       // Look up worker
-      const { data: workers, error: workerError } = await supabase
+      const { data: worker, error: workerError } = await supabase
         .from('workers')
         .select('*')
         .eq('qr_value', decodedText)
         .single();
 
-      if (workerError || !workers) {
+      if (workerError || !worker) {
         handleFeedback('QR Not Recognized', 'error');
         return;
       }
       
-      if (workers.status === 'Suspended') {
-        handleFeedback(`${workers.name} is Suspended`, 'error');
+      if (worker.status === 'Suspended') {
+        handleFeedback(`${worker.name} is Suspended`, 'error');
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      // Check if already checked in to THIS event
+      const { data: existingAttendance } = await supabase
+        .from('event_attendance')
+        .select('*')
+        .eq('event_id', selectedEvent.id)
+        .eq('worker_id', worker.id);
 
-      // If there's an event, use event-based attendance
-      if (selectedEvent) {
-        // Check if already checked in to THIS event
-        const { data: eventAttendance } = await supabase
-          .from('event_attendance')
-          .select('*')
-          .eq('event_id', selectedEvent.id)
-          .eq('worker_id', workers.id);
+      if (existingAttendance?.length > 0) {
+        handleFeedback(`${worker.name} already checked in to this event`, 'warning');
+        return;
+      }
 
-        if (eventAttendance?.length > 0) {
-          handleFeedback(`${workers.name} already checked in to this event`, 'warning');
-          return;
-        }
-
-        // Insert event attendance (CORRECTED - uses worker_id)
-        const { error: insertError } = await supabase
-          .from('event_attendance')
-          .insert([{
-            event_id: selectedEvent.id,
-            worker_id: workers.id,
-            check_in_time: new Date().toISOString(),
-            scan_type: 'qr',
-            is_guest: false,
-            is_baptized: true
-          }]);
-
-        if (insertError) throw insertError;
-        
-        handleFeedback(`✓ ${workers.name} - ${selectedEvent.title}`, 'success');
-        updateEventCount();
-        
-      } else {
-        // Fallback to old daily attendance system (if no events today)
-        const { data: existing } = await supabase
-          .from('attendance')
-          .select('*')
-          .eq('worker_id', workers.id)
-          .eq('date', today);
-
-        if (existing?.length > 0) {
-          handleFeedback(`${workers.name} already checked in`, 'warning');
-          return;
-        }
-
-        const { error: insertError } = await supabase.from('attendance').insert([{
-          worker_id: workers.id,
-          name: workers.name,
-          ministry: workers.ministry,
-          date: today,
-          time: new Date().toISOString(),
-          status: 'Present',
-          qr_value: decodedText
+      // Record attendance to event
+      const { error: insertError } = await supabase
+        .from('event_attendance')
+        .insert([{
+          event_id: selectedEvent.id,
+          worker_id: worker.id,
+          check_in_time: new Date().toISOString(),
+          scan_type: 'qr',
+          is_guest: false,
+          is_baptized: true
         }]);
 
-        if (insertError) throw insertError;
-        handleFeedback(`Success: ${workers.name}`, 'success');
-        fetchTodayCount();
-      }
+      if (insertError) throw insertError;
+      
+      handleFeedback(`✓ ${worker.name} - ${selectedEvent.title}`, 'success');
+      updateEventCount();
       
     } catch (e) {
       console.error('Scan error:', e);
@@ -316,19 +277,19 @@ export default function Scanner() {
         <div>
           <h2 className="text-2xl font-black text-gray-900">Scanner</h2>
           <p className="text-sm text-gray-500">
-            {selectedEvent ? selectedEvent.title : 'Attendance System'}
+            {selectedEvent ? selectedEvent.title : 'Event Attendance System'}
           </p>
         </div>
         <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-200 text-center">
           <span className="block text-xs font-bold text-gray-400 uppercase tracking-tighter">
-            {selectedEvent ? 'Event Scans' : 'Total Scans'}
+            {selectedEvent ? 'Event Scans' : 'Select Event'}
           </span>
           <span className="text-xl font-black text-blue-600">{todayCount}</span>
         </div>
       </div>
 
       {/* Event Selector */}
-      {todayEvents.length > 0 && (
+      {todayEvents.length > 0 ? (
         <div className="w-full max-w-sm mb-4">
           {showEventSelector ? (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
@@ -373,6 +334,11 @@ export default function Scanner() {
             </div>
           )}
         </div>
+      ) : (
+        <div className="w-full max-w-sm mb-4 bg-orange-100 border border-orange-300 rounded-2xl p-4 text-orange-800">
+          <p className="font-semibold text-sm">⚠️ No Events Today</p>
+          <p className="text-xs mt-1">Please create an event before scanning.</p>
+        </div>
       )}
 
       {/* Scanner Box */}
@@ -390,7 +356,7 @@ export default function Scanner() {
               <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-sm"></div>
               
               {/* Scanning Line */}
-              {isScanning && !processing && (
+              {isScanning && !processing && selectedEvent && (
                 <div className="absolute left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-green-500 to-transparent shadow-[0_0_15px_rgba(34,197,94,0.8)] animate-scan"></div>
               )}
             </div>
@@ -400,9 +366,17 @@ export default function Scanner() {
         {/* Status Bar */}
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${processing ? 'bg-yellow-500 animate-pulse' : isScanning ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+            <span className={`w-2 h-2 rounded-full ${
+              !selectedEvent ? 'bg-orange-500 animate-pulse' :
+              processing ? 'bg-yellow-500 animate-pulse' : 
+              isScanning ? 'bg-green-500' : 
+              'bg-gray-300'
+            }`}></span>
             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              {processing ? 'Processing...' : isScanning ? 'Ready to Scan' : 'Initializing...'}
+              {!selectedEvent ? 'Select Event' :
+               processing ? 'Processing...' : 
+               isScanning ? 'Ready to Scan' : 
+               'Initializing...'}
             </span>
           </div>
           
@@ -414,7 +388,7 @@ export default function Scanner() {
 
       {/* Instructions */}
       <div className="mt-6 text-center max-w-sm">
-        {todayEvents.length > 0 && !selectedEvent ? (
+        {!selectedEvent ? (
           <div className="text-sm font-medium px-4 py-2 rounded-lg bg-orange-100 text-orange-800 border border-orange-200">
             ⚠️ Please select an event above to begin scanning
           </div>
@@ -433,8 +407,20 @@ export default function Scanner() {
 
       {/* Footer */}
       <p className="mt-8 text-gray-400 text-[10px] font-bold tracking-widest uppercase">
-        © 2026 JCTGBTG Attendance 
+        © 2026 Event-Based Attendance System
       </p>
+      
+      <style>{`
+        @keyframes scan {
+          0% { top: 0; }
+          50% { top: calc(100% - 2px); }
+          100% { top: 0; }
+        }
+        
+        .animate-scan {
+          animation: scan 2s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }
