@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../database/supabase';
 import { ArrowLeft } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function Scanner() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [scanMessage, setScanMessage] = useState('');
   const [scanMessageType, setScanMessageType] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -27,6 +28,20 @@ export default function Scanner() {
   // Fetch and auto-select today's event
   const fetchAndSelectEvent = async () => {
     try {
+      // Check if event was passed via navigation state
+      const preSelectedEvent = location.state?.selectedEvent;
+      
+      if (preSelectedEvent) {
+        // Use the pre-selected event from EventAttendance
+        setCurrentEvent(preSelectedEvent);
+        setTodayEvents([preSelectedEvent]);
+        setShowEventSelector(false);
+        handleFeedback(`Selected: ${preSelectedEvent.title}`, 'success');
+        setAutoSelectAttempted(true);
+        return;
+      }
+      
+      // Otherwise, auto-select based on today's date/time
       const today = new Date().toISOString().split('T')[0];
       const now = new Date();
       const currentTime = now.toTimeString().slice(0, 5); // HH:MM format

@@ -1,183 +1,122 @@
-// components/EventForm.jsx
-import { useState, useEffect, useMemo } from 'react';
-import { X, Search, AlertCircle } from 'lucide-react';
-import { EVENT_TYPES, EVENT_STATUSES } from '../utils/eventConstants';
-import { workerService } from '../database/supabaseEvents';
+import { useState, useEffect } from 'react';
+import { X, Calendar, Clock, MapPin, User, FileText, Repeat } from 'lucide-react';
 import { eventService } from '../database/supabaseEvents';
+import { createRecurringEvent } from '../database/recurringEventServices';
 
-const getTodayString = () => new Date().toISOString().split('T')[0];
-
-const EventForm = ({ event, onClose, onSave }) => {
+export default function EventForm({ event, onClose, onSave }) {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    type: EVENT_TYPES.EVENT,
-    organizer: '',
-    place: '',
-    event_date: '',
-    start_time: '',
-    end_time: '',
+    type: 'sunday_service',
+    event_date: new Date().toISOString().split('T')[0],
+    start_time: '09:00',
+    end_time: '12:00',
+    place: 'Church',
+    location: 'Church',
+    status: 'approved',
     preacher: '',
-    status: EVENT_STATUSES.PROPOSED,
-    ...event
+    organizer: ''
   });
 
-  const [workers, setWorkers] = useState([]);
-  const [selectedWorkers, setSelectedWorkers] = useState([]);
-  const [workerSearch, setWorkerSearch] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceConfig, setRecurrenceConfig] = useState({
+    pattern: 'weekly',
+    dayOfWeek: 0, // Sunday
+    endDate: ''
+  });
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    loadWorkers();
-    if (event?.id) {
-      loadEventWorkers();
+    if (event) {
+      setFormData({
+        title: event.title || '',
+        description: event.description || '',
+        type: event.type || 'sunday_service',
+        event_date: event.event_date || new Date().toISOString().split('T')[0],
+        start_time: event.start_time?.slice(0, 5) || '09:00',
+        end_time: event.end_time?.slice(0, 5) || '12:00',
+        place: event.place || 'Church',
+        location: event.location || 'Church',
+        status: event.status || 'approved',
+        preacher: event.preacher || '',
+        organizer: event.organizer || ''
+      });
+      
+      // Check if event is recurring
+      setIsRecurring(event.is_recurring || false);
+      if (event.is_recurring) {
+        setRecurrenceConfig({
+          pattern: event.recurrence_pattern || 'weekly',
+          dayOfWeek: event.recurrence_day_of_week ?? 0,
+          endDate: event.recurrence_end_date || ''
+        });
+      }
     }
   }, [event]);
-
-  const loadWorkers = async () => {
-    const { data } = await workerService.getAllWorkers();
-    if (data) setWorkers(data);
-  };
-
-  const loadEventWorkers = async () => {
-    const { data } = await eventService.getEventWorkers(event.id);
-    if (data) {
-      setSelectedWorkers(data.map(ew => ew.worker_id));
-    }
-  };
-
-  const filteredWorkers = useMemo(() => {
-    const q = workerSearch.trim().toLowerCase();
-    if (!q) return workers;
-    return workers.filter(w => w.name.toLowerCase().includes(q));
-  }, [workers, workerSearch]);
-
-  const validateForm = () => {
-    const newErrors = {};
-    const today = getTodayString();
-
-    if (!formData.title?.trim()) {
-      newErrors.title = 'Title is required';
-    }
-    
-    if (!formData.event_date) {
-      newErrors.event_date = 'Date is required';
-    } else if (formData.event_date < today && !event) {
-      newErrors.event_date = 'Event date cannot be in the past';
-    }
-    
-    if (!formData.start_time) {
-      newErrors.start_time = 'Start time is required';
-    }
-    
-    if (!formData.end_time) {
-      newErrors.end_time = 'End time is required';
-    } else if (formData.start_time && formData.end_time <= formData.start_time) {
-      newErrors.end_time = 'End time must be after start time';
-    }
-
-    if (formData.status === EVENT_STATUSES.DECLINED && !formData.decline_reason?.trim()) {
-      newErrors.decline_reason = 'Decline reason is required';
-    }
-
-    if (formData.status === EVENT_STATUSES.POSTPONED) {
-      if (!formData.postpone_reason?.trim()) {
-        newErrors.postpone_reason = 'Postpone reason is required';
-      }
-      if (!formData.postponed_target_date) {
-        newErrors.postponed_target_date = 'New date is required';
-      }
-    }
-
-    if (formData.status === EVENT_STATUSES.COMPLETED) {
-      if (!formData.total_attendance || formData.total_attendance < 0) {
-        newErrors.total_attendance = 'Total attendance is required';
-      }
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!validateForm()) return;
-
-    setLoading(true);
-
-    try {
-      // 1. Destructure to clean data
-      const { event_workers, id, ...cleanData } = formData;
-
-      const payload = {
-        ...cleanData,
-        description: cleanData.description || null,
-        organizer: cleanData.organizer || null,
-        place: cleanData.place || null,
-        preacher: cleanData.preacher || null
-      };
-
-      let eventId;
-
-      if (event?.id) {
-        const { data, error } = await eventService.updateEvent(event.id, payload);
-        if (error) throw error;
-        eventId = event.id;
-      } else {
-        const { data, error } = await eventService.createEvent(payload);
-        if (error) throw error;
-        eventId = data.id;
-      }
-
-      await eventService.replaceEventWorkers(eventId, selectedWorkers);
-
-      onSave();
-      onClose();
-    } catch (error) {
-      console.error('Error saving event:', error);
-      alert(error.message || 'Failed to save event');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: null }));
+  };
+
+  const handleRecurrenceChange = (e) => {
+    const { name, value } = e.target;
+    setRecurrenceConfig(prev => ({ 
+      ...prev, 
+      [name]: name === 'dayOfWeek' ? parseInt(value) : value 
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+
+    try {
+      if (isRecurring && !event) {
+        // Creating new recurring event
+        const result = await createRecurringEvent(formData, recurrenceConfig);
+        console.log(`Created recurring event with ${result.count} instances`);
+        alert(`Successfully created ${result.count} event instances!`);
+      } else if (event) {
+        // Updating existing event
+        const { error: updateError } = await eventService.updateEvent(event.id, formData);
+        if (updateError) throw updateError;
+      } else {
+        // Creating single event
+        const { error: createError } = await eventService.createEvent(formData);
+        if (createError) throw createError;
+      }
+
+      onSave();
+      onClose();
+    } catch (err) {
+      console.error('Error saving event:', err);
+      setError(err.message || 'Failed to save event');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const toggleWorker = (workerId) => {
-    setSelectedWorkers(prev =>
-      prev.includes(workerId)
-        ? prev.filter(id => id !== workerId)
-        : [...prev, workerId]
-    );
-  };
-
-  const inputClass = (field) =>
-    `cursor-pointer w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-colors ${
-      errors[field] ? 'border-red-500 bg-red-50' : 'border-gray-300'
-    }`;
-
-  const ErrorMessage = ({ field }) =>
-    errors[field] ? (
-      <div className="flex items-center gap-1 text-red-600 text-xs mt-1">
-        <AlertCircle className="w-3 h-3" />
-        <span>{errors[field]}</span>
-      </div>
-    ) : null;
+  const dayOfWeekOptions = [
+    { value: 0, label: 'Sunday' },
+    { value: 1, label: 'Monday' },
+    { value: 2, label: 'Tuesday' },
+    { value: 3, label: 'Wednesday' },
+    { value: 4, label: 'Thursday' },
+    { value: 5, label: 'Friday' },
+    { value: 6, label: 'Saturday' }
+  ];
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl max-w-3xl w-full shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    /* Added backdrop-blur-sm here */
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         
-        {/* --- NEW HEADER FEATURE --- */}
-        {/* Replaced blue gradient with the clean gray border style you requested */}
-        <div className="px-6 py-4 border-b border-gray-200 flex-shrink-0 flex justify-between items-center bg-white">
+        {/* --- NEW HEADER --- */}
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white flex-shrink-0">
           <h2 className="text-xl font-bold text-gray-800">
             {event ? 'Edit Event' : 'Create New Event'}
           </h2>
@@ -188,235 +127,313 @@ const EventForm = ({ event, onClose, onSave }) => {
             <X className="w-5 h-5" />
           </button>
         </div>
-        {/* -------------------------- */}
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto">
-          {/* Title & Type */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Event Title *
-              </label>
-              <input
-                type="text"
-                name="title"
-                value={formData.title}
-                onChange={handleChange}
-                className={inputClass('title')}
-                placeholder="e.g. Workers Conference"
-              />
-              <ErrorMessage field="title" />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Type *
-              </label>
-              <select
-                name="type"
-                value={formData.type}
-                onChange={handleChange}
-                className={inputClass('type')}
-              >
-                <option value={EVENT_TYPES.EVENT}>Event</option>
-                <option value={EVENT_TYPES.TRAINING}>Training</option>
-                <option value={EVENT_TYPES.MEETING}>Meeting</option>
-                <option value={EVENT_TYPES.SPECIAL}>Special</option>
-              </select>
-            </div>
-          </div>
+        {/* Form Container with Scrolling */}
+        <div className="overflow-y-auto p-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {error && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
+                {error}
+              </div>
+            )}
 
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
-            </label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-              placeholder="Brief description of the event..."
-            />
-          </div>
+            {/* Basic Info */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+                Basic Information
+              </h3>
 
-          {/* Date & Time */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Date *
-              </label>
-              <input
-                type="date"
-                name="event_date"
-                value={formData.event_date}
-                onChange={handleChange}
-                min={event ? undefined : getTodayString()}
-                className={inputClass('event_date')}
-              />
-              <ErrorMessage field="event_date" />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Start Time *
-              </label>
-              <input
-                type="time"
-                name="start_time"
-                value={formData.start_time}
-                onChange={handleChange}
-                className={inputClass('start_time')}
-              />
-              <ErrorMessage field="start_time" />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                End Time *
-              </label>
-              <input
-                type="time"
-                name="end_time"
-                value={formData.end_time}
-                onChange={handleChange}
-                className={inputClass('end_time')}
-              />
-              <ErrorMessage field="end_time" />
-            </div>
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Event Title *
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  value={formData.title}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="e.g., Sunday Service, Bible Study"
+                />
+              </div>
 
-          {/* Organizer & Place */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Organizer
-              </label>
-              <input
-                type="text"
-                name="organizer"
-                value={formData.organizer}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Person or team organizing"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Location
-              </label>
-              <input
-                type="text"
-                name="place"
-                value={formData.place}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                placeholder="Venue or location"
-              />
-            </div>
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Event Type *
+                </label>
+                <select
+                  name="type"
+                  value={formData.type}
+                  onChange={handleChange}
+                  required
+                  className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="sunday_service">Sunday Service</option>
+                  <option value="prayer_meeting">Prayer Meeting</option>
+                  <option value="bible_study">Bible Study</option>
+                  <option value="meet">Meeting/Setup</option>
+                  <option value="outreach">Workers Conference</option>
+                  <option value="Church Event">Church Event</option>
+                </select>
+              </div>
 
-          {/* Preacher/Speaker */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Speaker / Preacher
-            </label>
-            <input
-              type="text"
-              name="preacher"
-              value={formData.preacher}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="Main speaker name"
-            />
-          </div>
-
-          {/* Functional Workers */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Functional Workers ({selectedWorkers.length} selected)
-            </label>
-            
-            <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search workers..."
-                value={workerSearch}
-                onChange={(e) => setWorkerSearch(e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows={3}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Event description..."
+                />
+              </div>
             </div>
 
-            <div className="border border-gray-300 rounded-lg p-3 max-h-48 overflow-y-auto bg-gray-50">
-              {filteredWorkers.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4">
-                  {workerSearch ? 'No workers found' : 'No workers available'}
-                </p>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {filteredWorkers.map(worker => (
-                    <label
-                      key={worker.id}
-                      className="flex items-center gap-2 cursor-pointer hover:bg-white p-2 rounded transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedWorkers.includes(worker.id)}
-                        onChange={() => toggleWorker(worker.id)}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                      />
-                      <span className="text-sm text-gray-700">{worker.name}</span>
-                    </label>
-                  ))}
+            {/* Recurring Event Section - Only show for new events */}
+            {!event && (
+              <div className="border-t pt-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                    <Repeat className="w-5 h-5 text-blue-600" />
+                    Recurring Event
+                  </h3>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isRecurring}
+                      onChange={(e) => setIsRecurring(e.target.checked)}
+                      className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Make this a recurring event
+                    </span>
+                  </label>
                 </div>
-              )}
+
+                {isRecurring && (
+                  <div className="bg-blue-50 p-4 rounded-lg space-y-4 border border-blue-200">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Repeat Pattern *
+                        </label>
+                        <select
+                          name="pattern"
+                          value={recurrenceConfig.pattern}
+                          onChange={handleRecurrenceChange}
+                          className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="weekly">Every Week</option>
+                          <option value="biweekly">Every 2 Weeks</option>
+                          <option value="monthly">Every Month</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Day of Week *
+                        </label>
+                        <select
+                          name="dayOfWeek"
+                          value={recurrenceConfig.dayOfWeek}
+                          onChange={handleRecurrenceChange}
+                          className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        >
+                          {dayOfWeekOptions.map(day => (
+                            <option key={day.value} value={day.value}>
+                              {day.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        End Date (Optional)
+                      </label>
+                      <input
+                        type="date"
+                        name="endDate"
+                        value={recurrenceConfig.endDate}
+                        onChange={handleRecurrenceChange}
+                        min={formData.event_date}
+                        className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Leave empty to continuously for 1 year
+                      </p>
+                    </div>
+
+                    <div className="bg-blue-100 p-3 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> This will create individual event entries for each occurrence. 
+                        {recurrenceConfig.endDate 
+                          ? ` Events will be created from ${formData.event_date} to ${recurrenceConfig.endDate}.`
+                          : ' Events will be created for 1 year by default.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Date & Time */}
+            <div className="border-t pt-6 space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-blue-600" />
+                Date & Time
+              </h3>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  {isRecurring ? 'Start Date (First Occurrence) *' : 'Event Date *'}
+                </label>
+                <input
+                  type="date"
+                  name="event_date"
+                  value={formData.event_date}
+                  onChange={handleChange}
+                  required
+                  className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    Start Time *
+                  </label>
+                  <input
+                    type="time"
+                    name="start_time"
+                    value={formData.start_time}
+                    onChange={handleChange}
+                    required
+                    className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    End Time *
+                  </label>
+                  <input
+                    type="time"
+                    name="end_time"
+                    value={formData.end_time}
+                    onChange={handleChange}
+                    required
+                    className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Status
-            </label>
-            <select
-              name="status"
-              value={formData.status}
-              onChange={handleChange}
-              className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-            >
-              <option value={EVENT_STATUSES.PROPOSED}>Proposed</option>
-              <option value={EVENT_STATUSES.APPROVED}>Approved</option>
-              <option value={EVENT_STATUSES.DECLINED}>Declined</option>
-              <option value={EVENT_STATUSES.POSTPONED}>Postponed</option>
-              <option value={EVENT_STATUSES.COMPLETED}>Completed</option>
-            </select>
-          </div>
+            {/* Location */}
+            <div className="border-t pt-6 space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <MapPin className="w-5 h-5 text-blue-600" />
+                Location
+              </h3>
 
-          {/* Action Buttons */}
-          <div className="bg-white pt-4 flex gap-3 border-t">
-            <button
-              type="button"
-              onClick={onClose}
-              className="cursor-pointer flex-1 px-4 py-2.5 border-2 border-gray-300 rounded-lg transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="cursor-pointer flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors shadow-sm"
-            >
-              {loading ? 'Saving...' : event ? 'Update Event' : 'Create Event'}
-            </button>
-          </div>
-        </form>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Place/Venue
+                </label>
+                <input
+                  type="text"
+                  name="place"
+                  value={formData.place}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g., Main Sanctuary, Fellowship Hall"
+                />
+              </div>
+            </div>
+
+            {/* Additional Info */}
+            <div className="border-t pt-6 space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <User className="w-5 h-5 text-blue-600" />
+                Additional Information
+              </h3>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Speaker/Preacher
+                </label>
+                <input
+                  type="text"
+                  name="preacher"
+                  value={formData.preacher}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Speaker name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Organizer
+                </label>
+                <input
+                  type="text"
+                  name="organizer"
+                  value={formData.organizer}
+                  onChange={handleChange}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Organizer name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Status *
+                </label>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                  required
+                  className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="proposed">Proposed</option>
+                  <option value="approved">Approved</option>
+                  <option value="declined">Declined</option>
+                  <option value="postponed">Postponed</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="border-t pt-6 flex items-center justify-end gap-3 sticky bottom-0 bg-white pb-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="cursor-pointer px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="cursor-pointer px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving...' : event ? 'Update Event' : isRecurring ? 'Create Event' : 'Create Event'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
-};
-
-export default EventForm;
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
+import { getOrCreateSundayService } from '../database/recurringEventServices';
 
 export default function SundayAttendance() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -47,73 +48,22 @@ export default function SundayAttendance() {
     return { status: 'present', text: 'Present' };
   };
 
-  // Get or create Sunday Service event
-  const getOrCreateSundayServiceEvent = async (date) => {
-    try {
-      // First, try to fetch existing event
-      const { data: existingEvent, error: fetchError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('event_date', date)
-        .eq('type', 'sunday_service')
-        .maybeSingle();
-      
-      if (fetchError) {
-        console.error('Error fetching event:', fetchError);
-        throw fetchError;
-      }
-      
-      // If event exists, return it
-      if (existingEvent) {
-        setCurrentEvent(existingEvent);
-        return existingEvent;
-      }
-      
-      // If no event exists, create one
-      console.log('No Sunday Service event found, creating new one...');
-      const { data: newEvent, error: createError } = await supabase
-        .from('events')
-        .insert([{
-          title: 'Sunday Service',
-          description: 'Weekly Sunday Service',
-          type: 'sunday_service',
-          event_date: date,
-          start_time: '09:00:00',
-          end_time: '12:00:00',
-          status: 'approved',
-          place: 'Church',
-          location: 'Church'
-        }])
-        .select()
-        .single();
-      
-      if (createError) {
-        console.error('Error creating event:', createError);
-        throw createError;
-      }
-      
-      console.log('Sunday Service event created:', newEvent);
-      setCurrentEvent(newEvent);
-      return newEvent;
-    } catch (error) {
-      console.error('Error in getOrCreateSundayServiceEvent:', error);
-      return null;
-    }
-  };
-
   const fetchAttendance = async (page = 1, date = selectedDate) => {
     setLoading(true);
     try {
-      // Get or create Sunday Service event for this date
-      const event = await getOrCreateSundayServiceEvent(date);
+      // Get or create Sunday Service event for this date using recurring event service
+      const event = await getOrCreateSundayService(date);
       
       if (!event) {
         setAttendanceRecords([]);
         setTotalCount(0);
         setTotalPages(0);
+        setCurrentEvent(null);
         setLoading(false);
         return;
       }
+      
+      setCurrentEvent(event);
       
       const from = (page - 1) * ROWS_PER_PAGE;
       const to = from + ROWS_PER_PAGE - 1;
@@ -149,8 +99,8 @@ export default function SundayAttendance() {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Get or create today's Sunday Service event
-      const event = await getOrCreateSundayServiceEvent(today);
+      // Get or create today's Sunday Service event using recurring event service
+      const event = await getOrCreateSundayService(today);
       
       if (!event) {
         setSummary({ presentToday: 0, lateToday: 0, absentToday: 0, totalWorkers: 0 });
@@ -322,6 +272,16 @@ export default function SundayAttendance() {
           <div className="mt-2 text-sm text-gray-600 bg-blue-50 p-2 rounded-lg">
             <strong>Attendance Rules:</strong> Present (Before 9:00 AM) • Late (9:00 AM - 9:14 AM) • Absent (9:15 AM onwards or no scan)
           </div>
+          
+          {/* Show if event is from recurring series */}
+          {currentEvent && currentEvent.is_series_instance && (
+            <div className="mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded-lg border border-blue-200 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>This is part of a recurring Sunday Service series</span>
+            </div>
+          )}
         </div>
 
         {/* Summary Cards */}
