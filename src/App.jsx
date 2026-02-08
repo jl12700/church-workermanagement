@@ -18,24 +18,29 @@ function App() {
       <Routes>
         {/* Public Routes */}
         <Route path='/' element={<Login />} />
+        <Route path='/checkin/:qrValue' element={<CheckIn />} /> 
 
         {/* Protected Routes */}
         <Route path='/dashboard' element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path='/worker-list' element={<ProtectedRoute><Workers /></ProtectedRoute>} />
 
-        {/* Attendance Routes - New Structure */}
+        {/* Attendance Routes - Event-Based System */}
         <Route path='/attendance/sunday' element={<ProtectedRoute><SundayAttendance /></ProtectedRoute>} />
         <Route path='/attendance/workers' element={<ProtectedRoute><WorkersAttendance /></ProtectedRoute>} />
         <Route path='/attendance/events' element={<ProtectedRoute><EventAttendance /></ProtectedRoute>} />
+        
+        {/* Scanner Route - Protected */}
+        <Route path='/scanner' element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
 
         {/* Redirect old /attendance route to Sunday Service */}
         <Route path='/attendance' element={<Navigate to="/attendance/sunday" replace />} />
 
-        {/* Other Routes */}
+        {/* Calendar & Reports */}
         <Route path='/calendar' element={<ProtectedRoute><EventCalendar /></ProtectedRoute>} />
         <Route path='/reports' element={<ProtectedRoute><Reports /></ProtectedRoute>} />
-        <Route path='/scanner' element={<Scanner />} />
-        <Route path='/checkin/:qrValue' element={<CheckIn />} /> 
+        
+        {/* Catch-all redirect */}
+        <Route path='*' element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   )

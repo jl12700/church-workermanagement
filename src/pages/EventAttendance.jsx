@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
 import { eventService } from '../database/eventService';
-import jsQR from 'jsqr';
 import { 
   Search, 
-  Camera, 
+  ScanLine, 
   X, 
   Download, 
   UserCheck, 
@@ -14,14 +14,15 @@ import {
   Users,
   Calendar,
   MapPin,
-  Filter
+  Filter,
+  ArrowRight
 } from 'lucide-react';
 
 export default function EventAttendance() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [scanning, setScanning] = useState(false);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [summary, setSummary] = useState({
     scanned: 0,
@@ -34,14 +35,10 @@ export default function EventAttendance() {
   const [scanMessage, setScanMessage] = useState('');
   const [scanMessageType, setScanMessageType] = useState('');
   const [workers, setWorkers] = useState([]);
-  const [showScanner, setShowScanner] = useState(false);
   const [manualWorkerSearch, setManualWorkerSearch] = useState('');
   const [showEventsPanel, setShowEventsPanel] = useState(true);
   const [eventFilter, setEventFilter] = useState('all'); // all, upcoming, past
-  
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
+  const [hasEventToday, setHasEventToday] = useState(false);
 
   // Fetch all approved events
   const fetchEvents = async () => {
@@ -56,6 +53,14 @@ export default function EventAttendance() {
       );
       
       setEvents(sortedEvents);
+      
+      // Check if there's an approved event today
+      const today = new Date().toISOString().split('T')[0];
+      const todayApprovedEvents = sortedEvents.filter(e => 
+        e.event_date === today && e.status === 'approved'
+      );
+      setHasEventToday(todayApprovedEvents.length > 0);
+      
     } catch (error) {
       console.error('Error fetching events:', error);
       alert('Failed to load events');
@@ -125,181 +130,16 @@ export default function EventAttendance() {
     }
   };
 
-  // Start attendance for an event
-  const startAttendance = async (event) => {
+  // Navigate to scanner page
+  const openScanner = () => {
+    navigate('/scanner');
+  };
+
+  // View attendance for an event
+  const viewAttendance = async (event) => {
     setSelectedEvent(event);
-    setScanning(true);
-    setShowScanner(true);
-    setShowEventsPanel(false); // Hide events panel on mobile when scanning
+    setShowEventsPanel(false);
     await fetchAttendance(event.id);
-    
-    // Start camera for scanning
-    startCamera();
-  };
-
-  // Start camera for QR scanning
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        videoRef.current.play();
-        
-        // Start scanning loop
-        requestAnimationFrame(scanQRCode);
-      }
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-      setScanMessage('Camera access denied. Please allow camera permissions.');
-      setScanMessageType('error');
-      setShowScanner(false);
-      setShowEventsPanel(true); // Show events panel again
-    }
-  };
-
-  // Stop camera
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  };
-
-  // QR Code scanning loop
-  const scanQRCode = () => {
-    if (!videoRef.current || !canvasRef.current || !scanning) return;
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-
-    // Draw video frame to canvas
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Get image data for QR detection
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height);
-
-    if (code) {
-      handleQRScan(code.data);
-    }
-
-    // Continue scanning
-    if (scanning) {
-      requestAnimationFrame(scanQRCode);
-    }
-  };
-
-  // Handle QR scan result
-  const handleQRScan = async (qrData) => {
-    if (scanMessage.includes('processing')) return;
-    
-    setScanMessage('Processing QR code...');
-    setScanMessageType('info');
-
-    try {
-      const qrValue = extractQRValue(qrData);
-      
-      if (!qrValue) {
-        setScanMessage('Invalid QR code format');
-        setScanMessageType('error');
-        setTimeout(() => setScanMessage(''), 3000);
-        return;
-      }
-
-      const worker = workers.find(w => w.qr_value === qrValue);
-      
-      if (!worker) {
-        setScanMessage('Worker not found');
-        setScanMessageType('error');
-        setTimeout(() => setScanMessage(''), 3000);
-        return;
-      }
-
-      const alreadyScanned = attendanceRecords.some(record => 
-        record.worker_id === worker.id
-      );
-
-      if (alreadyScanned) {
-        setScanMessage(`${worker.name} already checked in`);
-        setScanMessageType('warning');
-        setTimeout(() => setScanMessage(''), 3000);
-        return;
-      }
-
-      const { error } = await eventService.recordAttendance(
-        selectedEvent.id,
-        worker.id,
-        'qr'
-      );
-
-      if (error) {
-        if (error.message === 'Already checked in to this event') {
-          setScanMessage(`${worker.name} already checked in`);
-          setScanMessageType('warning');
-        } else {
-          throw error;
-        }
-      } else {
-        setScanMessage(`✓ ${worker.name} checked in!`);
-        setScanMessageType('success');
-        await fetchAttendance(selectedEvent.id);
-      }
-      
-      setTimeout(() => setScanMessage(''), 3000);
-
-    } catch (error) {
-      console.error('Error recording attendance:', error);
-      setScanMessage('Failed to record attendance');
-      setScanMessageType('error');
-      setTimeout(() => setScanMessage(''), 3000);
-    }
-  };
-
-  // Helper to extract QR value from scanned text
-  const extractQRValue = (text) => {
-    if (text.startsWith('WRK-')) {
-      return text;
-    }
-    
-    try {
-      const url = new URL(text);
-      const qrValue = url.pathname.split('/').pop();
-      if (qrValue.startsWith('WRK-')) {
-        return qrValue;
-      }
-    } catch {}
-    
-    if (text.includes('/checkin/')) {
-      const parts = text.split('/checkin/');
-      if (parts.length > 1 && parts[1].startsWith('WRK-')) {
-        return parts[1];
-      }
-    }
-    
-    return null;
-  };
-
-  // Stop scanning
-  const stopScanning = () => {
-    setScanning(false);
-    setShowScanner(false);
-    stopCamera();
-    setShowEventsPanel(true); // Show events panel again
   };
 
   // Manually add attendance
@@ -389,7 +229,7 @@ export default function EventAttendance() {
     fetchWorkers();
   }, []);
 
-  
+  // Real-time attendance updates
   useEffect(() => {
     if (!selectedEvent) return;
 
@@ -414,13 +254,6 @@ export default function EventAttendance() {
     };
   }, [selectedEvent]);
 
-  // Clean up camera on unmount
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
   // Mobile responsive breakpoints
   const isMobile = window.innerWidth < 768;
 
@@ -437,16 +270,32 @@ export default function EventAttendance() {
               </p>
             </div>
             
-            {/* Mobile Toggle for Events Panel */}
-            {isMobile && selectedEvent && !scanning && (
-              <button
-                onClick={() => setShowEventsPanel(!showEventsPanel)}
-                className="md:hidden bg-blue-600 text-white p-3 rounded-lg shadow"
-              >
-                {showEventsPanel ? 'Hide Events' : 'Show Events'}
-              </button>
-            )}
+            {/* Scanner Button - Prominent in Header */}
+            <button
+              onClick={openScanner}
+              className={`cursor-pointer flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 rounded-lg font-semibold transition-all shadow-md ${
+                hasEventToday 
+                  ? 'bg-green-600 text-white hover:bg-green-700 animate-pulse' 
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              <ScanLine className="w-5 h-5" />
+              <span className="hidden md:inline">
+                {hasEventToday ? 'Scan Attendance Now' : 'Open Scanner'}
+              </span>
+              <span className="md:hidden">Scan</span>
+            </button>
           </div>
+
+          {/* Mobile Toggle for Events Panel */}
+          {isMobile && selectedEvent && (
+            <button
+              onClick={() => setShowEventsPanel(!showEventsPanel)}
+              className="md:hidden bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg shadow-sm w-full"
+            >
+              {showEventsPanel ? 'Hide Events' : 'Show Events'}
+            </button>
+          )}
 
           {/* Event Filter Tabs for Mobile */}
           <div className="md:hidden mb-4">
@@ -469,7 +318,7 @@ export default function EventAttendance() {
         </div>
 
         <div className="flex flex-col lg:flex-row gap-6">
-          
+          {/* Events List Panel */}
           <div className={`lg:w-1/3 ${isMobile && !showEventsPanel ? 'hidden' : 'block'}`}>
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
               <div className="p-4 border-b border-gray-200 bg-gray-50">
@@ -479,11 +328,11 @@ export default function EventAttendance() {
                       Events ({getFilteredEvents().length})
                     </h2>
                     <p className="text-sm text-gray-600 mt-1">
-                      Select event to start attendance
+                      Select event to view attendance
                     </p>
                   </div>
                   
-                  
+                  {/* Desktop Filter */}
                   <div className="hidden md:block">
                     <select
                       value={eventFilter}
@@ -515,7 +364,7 @@ export default function EventAttendance() {
                     {getFilteredEvents().map(event => (
                       <div
                         key={event.id}
-                        onClick={() => setSelectedEvent(event)}
+                        onClick={() => viewAttendance(event)}
                         className={`border rounded-xl p-4 cursor-pointer transition-all active:scale-[0.98] ${
                           selectedEvent?.id === event.id
                             ? 'border-blue-500 bg-blue-50 shadow-sm'
@@ -562,36 +411,16 @@ export default function EventAttendance() {
                         </div>
 
                         <div className="mt-4">
-                          {(!scanning || selectedEvent?.id !== event.id) && event.status === 'approved' ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startAttendance(event);
-                              }}
-                              className="cursor-pointer w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-medium transition-colors active:bg-blue-800 flex items-center justify-center gap-2"
-                            >
-                              <Camera className="w-5 h-5" />
-                              Start Attendance
-                            </button>
-                          ) : scanning && selectedEvent?.id === event.id ? (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                stopScanning();
-                              }}
-                              className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-medium transition-colors active:bg-red-800 flex items-center justify-center gap-2"
-                            >
-                              <X className="w-5 h-5" />
-                              Stop Scanning
-                            </button>
-                          ) : (
-                            <button
-                              disabled
-                              className="w-full bg-gray-400 text-white px-4 py-3 rounded-lg font-medium flex items-center justify-center gap-2"
-                            >
-                              {event.status === 'approved' ? 'Start Attendance' : 'Event Not Approved'}
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              viewAttendance(event);
+                            }}
+                            className="cursor-pointer w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                            View Attendance
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -601,73 +430,69 @@ export default function EventAttendance() {
             </div>
           </div>
 
-          
+          {/* Attendance Details Panel */}
           <div className={`lg:w-2/3 ${isMobile && showEventsPanel ? 'hidden' : 'block'}`}>
             {selectedEvent ? (
               <div className="space-y-4 md:space-y-6">
-                
+                {/* Event Header */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
                   <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                     <div className="flex-1">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h2 className="text-xl md:text-2xl font-bold text-gray-800 break-words">
-                            {selectedEvent.title}
-                          </h2>
-                          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mt-2">
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <Calendar className="w-4 h-4 flex-shrink-0" />
-                              <span className="text-sm md:text-base">
-                                {new Date(selectedEvent.event_date).toLocaleDateString('en-US', {
-                                  weekday: 'short',
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric'
-                                })}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <Clock className="w-4 h-4 flex-shrink-0" />
-                              <span className="text-sm md:text-base">
-                                {selectedEvent.start_time} - {selectedEvent.end_time}
-                              </span>
-                            </div>
-                            {selectedEvent.place && (
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <MapPin className="w-4 h-4 flex-shrink-0" />
-                                <span className="text-sm md:text-base truncate">
-                                  {selectedEvent.place}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                      <h2 className="text-xl md:text-2xl font-bold text-gray-800 break-words">
+                        {selectedEvent.title}
+                      </h2>
+                      <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mt-2">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Calendar className="w-4 h-4 flex-shrink-0" />
+                          <span className="text-sm md:text-base">
+                            {new Date(selectedEvent.event_date).toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </span>
                         </div>
-                        
-                        
-                        {isMobile && scanning && (
-                          <button
-                            onClick={stopScanning}
-                            className="md:hidden bg-red-600 text-white p-2 rounded-lg"
-                          >
-                            <X className="w-5 h-5" />
-                          </button>
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <Clock className="w-4 h-4 flex-shrink-0" />
+                          <span className="text-sm md:text-base">
+                            {selectedEvent.start_time} - {selectedEvent.end_time}
+                          </span>
+                        </div>
+                        {selectedEvent.place && (
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <MapPin className="w-4 h-4 flex-shrink-0" />
+                            <span className="text-sm md:text-base truncate">
+                              {selectedEvent.place}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </div>
                     
                     <div className="flex gap-2">
+                      {/* Scan Button */}
+                      <button
+                        onClick={openScanner}
+                        className="cursor-pointer bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                        <span className="hidden md:inline">Scan QR</span>
+                        <span className="md:hidden">Scan</span>
+                      </button>
+                      
+                      {/* Export Button */}
                       <button
                         onClick={exportAttendance}
-                        className="cursor-pointer ml-auto  bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors active:bg-green-800 flex items-center gap-2"
+                        className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
                       >
                         <Download className="w-4 h-4" />
-                        <span className="hidden md:inline">Export CSV</span>
-                        <span className="md:hidden">Export</span>
+                        <span className="hidden md:inline">Export</span>
                       </button>
                     </div>
                   </div>
 
-                  
+                  {/* Scan Message */}
                   {scanMessage && (
                     <div className={`mt-4 p-3 rounded-lg font-medium text-sm md:text-base ${
                       scanMessageType === 'success' 
@@ -683,28 +508,28 @@ export default function EventAttendance() {
                   )}
                 </div>
 
-                
+                {/* Statistics Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                   <div className="bg-blue-600 rounded-xl p-4 text-white shadow">
                     <div className="flex items-center gap-2 mb-2">
                       <Users className="w-5 h-5" />
                       <h3 className="text-xs font-bold uppercase tracking-wider">
-                        Total Workers
+                        Total
                       </h3>
                     </div>
                     <p className="text-2xl md:text-3xl font-extrabold">{summary.totalWorkers}</p>
-                    <p className="text-xs md:text-sm text-blue-100 mt-1">Active Workers</p>
+                    <p className="text-xs md:text-sm text-blue-100 mt-1">Workers</p>
                   </div>
 
-                  <div className="bg-green-800 rounded-xl p-4 text-white shadow">
+                  <div className="bg-green-600 rounded-xl p-4 text-white shadow">
                     <div className="flex items-center gap-2 mb-2">
                       <UserCheck className="w-5 h-5" />
                       <h3 className="text-xs font-bold uppercase tracking-wider">
                         Present
                       </h3>
                     </div>
-                    <p className="text-2xl md:text-3xl font-extrabold">{summary.presentCount}</p>
-                    <p className="text-xs md:text-sm text-green-100 mt-1">On Time</p>
+                    <p className="text-2xl md:text-3xl font-extrabold">{summary.scanned}</p>
+                    <p className="text-xs md:text-sm text-green-100 mt-1">Checked In</p>
                   </div>
 
                   <div className="bg-yellow-600 rounded-xl p-4 text-white shadow">
@@ -715,118 +540,76 @@ export default function EventAttendance() {
                       </h3>
                     </div>
                     <p className="text-2xl md:text-3xl font-extrabold">{summary.lateCount}</p>
-                    <p className="text-xs md:text-sm text-yellow-100 mt-1">Late Arrivals</p>
+                    <p className="text-xs md:text-sm text-yellow-100 mt-1">Arrivals</p>
                   </div>
 
-                  <div className="bg-red-500 rounded-xl p-4 text-white shadow">
+                  <div className="bg-red-600 rounded-xl p-4 text-white shadow">
                     <div className="flex items-center gap-2 mb-2">
                       <UserX className="w-5 h-5" />
                       <h3 className="text-xs font-bold uppercase tracking-wider">
                         Absent
                       </h3>
                     </div>
-                    <p className="text-2xl md:text-3xl font-extrabold">{summary.absentCount}</p>
-                    <p className="text-xs md:text-sm text-red-100 mt-1">
-                      {scanning ? 'Scanning...' : 'Not Scanned'}
-                    </p>
+                    <p className="text-2xl md:text-3xl font-extrabold">{summary.absent}</p>
+                    <p className="text-xs md:text-sm text-red-100 mt-1">Not Scanned</p>
                   </div>
                 </div>
 
-                
-                {scanning && showScanner && (
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
-                    <div className="flex justify-between items-center mb-4">
+                {/* Manual Entry Section */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
+                  <details className="group">
+                    <summary className="flex items-center justify-between cursor-pointer list-none">
                       <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                        <Camera className="w-5 h-5" />
-                        QR Code Scanner
+                        <Search className="w-5 h-5" />
+                        Manual Entry
                       </h3>
-                      <button
-                        onClick={stopScanning}
-                        className="text-sm text-red-600 hover:text-red-800 font-medium flex items-center gap-1"
-                      >
-                        <X className="w-4 h-4" />
-                        <span className="hidden md:inline">Stop</span>
-                      </button>
-                    </div>
+                      <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </summary>
                     
-                    <div className="flex flex-col lg:flex-row gap-4 md:gap-6">
-                      
-                      <div className="lg:w-2/3">
-                        <div className="border-2 border-dashed border-blue-300 rounded-xl p-3 md:p-4 bg-blue-50">
-                          <div className="relative aspect-square md:aspect-video">
-                            <video
-                              ref={videoRef}
-                              className="w-full h-full object-cover rounded-lg border border-gray-300"
-                              playsInline
-                            />
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="w-48 h-48 md:w-64 md:h-64 border-2 border-blue-500 border-dashed rounded-lg"></div>
-                            </div>
-                          </div>
-                          <p className="text-sm text-gray-600 mt-3 text-center">
-                            Point camera at QR code
-                          </p>
-                        </div>
+                    <div className="mt-4">
+                      <div className="mb-3">
+                        <input
+                          type="text"
+                          placeholder="Search workers by name or ministry..."
+                          value={manualWorkerSearch}
+                          onChange={(e) => setManualWorkerSearch(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                       </div>
-
-                      
-                      <div className="lg:w-1/3">
-                        <details className="group" open>
-                          <summary className="flex items-center justify-between cursor-pointer list-none p-3 bg-gray-100 rounded-lg">
-                            <h4 className="font-medium text-gray-700 flex items-center gap-2">
-                              <Search className="w-4 h-4" />
-                              Manual Entry
-                            </h4>
-                            <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </summary>
-                          
-                          <div className="mt-3">
-                            <div className="mb-3">
-                              <input
-                                type="text"
-                                placeholder="Search workers..."
-                                value={manualWorkerSearch}
-                                onChange={(e) => setManualWorkerSearch(e.target.value)}
-                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[400px] overflow-y-auto">
+                        {filteredWorkers.length === 0 ? (
+                          <p className="text-sm text-gray-500 text-center py-8 col-span-full">
+                            {manualWorkerSearch ? 'No workers found' : 'All workers checked in'}
+                          </p>
+                        ) : (
+                          filteredWorkers.map(worker => (
+                            <div key={worker.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 text-sm truncate">{worker.name}</p>
+                                <p className="text-xs text-gray-500 truncate">{worker.ministry}</p>
+                              </div>
+                              <button
+                                onClick={() => manuallyAddAttendance(worker.id)}
+                                className="cursor-pointer text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition-colors whitespace-nowrap ml-2"
+                              >
+                                Add
+                              </button>
                             </div>
-                            <div className="space-y-2 max-h-[200px] md:max-h-[300px] overflow-y-auto">
-                              {filteredWorkers.length === 0 ? (
-                                <p className="text-sm text-gray-500 text-center py-4">
-                                  {manualWorkerSearch ? 'No workers found' : 'All checked in'}
-                                </p>
-                              ) : (
-                                filteredWorkers.map(worker => (
-                                  <div key={worker.id} className="flex items-center justify-between p-3 bg-gray-50 rounded border border-gray-200">
-                                    <div className="flex-1 min-w-0">
-                                      <p className="font-medium text-gray-900 text-sm truncate">{worker.name}</p>
-                                      <p className="text-xs text-gray-500 truncate">{worker.ministry}</p>
-                                    </div>
-                                    <button
-                                      onClick={() => manuallyAddAttendance(worker.id)}
-                                      className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors whitespace-nowrap ml-2"
-                                    >
-                                      Add
-                                    </button>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        </details>
+                          ))
+                        )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  </details>
+                </div>
 
-                
+                {/* Attendance Records Table */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="p-4 border-b border-gray-200 bg-gray-50">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <h3 className="text-lg font-semibold text-gray-800">
-                        Attendance ({attendanceRecords.length})
+                        Attendance Records ({attendanceRecords.length})
                       </h3>
                       <span className="text-sm text-gray-500">
                         Updated: {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -837,14 +620,22 @@ export default function EventAttendance() {
                   {attendanceRecords.length === 0 ? (
                     <div className="text-center py-8 md:py-12 text-gray-500">
                       <UserCheck className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                      <p className="font-medium">No attendance records</p>
-                      <p className="text-sm mt-2">
-                        {scanning ? 'Start scanning to record attendance' : 'Start attendance to begin'}
+                      <p className="font-medium">No attendance records yet</p>
+                      <p className="text-sm mt-2 mb-4">
+                        Start scanning QR codes to record attendance
                       </p>
+                      <button
+                        onClick={openScanner}
+                        className="cursor-pointer inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                      >
+                        <ScanLine className="w-5 h-5" />
+                        Open Scanner
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
-                      
+                      {/* Mobile View */}
                       <div className="md:hidden">
                         <div className="divide-y divide-gray-200">
                           {attendanceRecords.map((record) => (
@@ -872,7 +663,7 @@ export default function EventAttendance() {
                                 </span>
                                 <span className={`px-2 py-1 text-xs rounded-full ${
                                   record.scan_type === 'qr' ? 'bg-blue-100 text-blue-800' :
-                                  record.scan_type === 'manual' ? 'bg-green-100 text-green-800' :
+                                  record.scan_type === 'manual' ? 'bg-purple-100 text-purple-800' :
                                   'bg-gray-100 text-gray-800'
                                 }`}>
                                   {record.scan_type || 'qr'}
@@ -883,7 +674,7 @@ export default function EventAttendance() {
                         </div>
                       </div>
                       
-                      
+                      {/* Desktop Table */}
                       <table className="hidden md:table min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                           <tr>
@@ -912,7 +703,7 @@ export default function EventAttendance() {
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                 <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                                   record.scan_type === 'qr' ? 'bg-blue-100 text-blue-800' :
-                                  record.scan_type === 'manual' ? 'bg-green-100 text-green-800' :
+                                  record.scan_type === 'manual' ? 'bg-purple-100 text-purple-800' :
                                   'bg-gray-100 text-gray-800'
                                 }`}>
                                   {record.scan_type || 'qr'}
@@ -939,25 +730,37 @@ export default function EventAttendance() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
                 <Calendar className="w-16 h-16 mx-auto text-blue-500 mb-4" />
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">Select an Event</h3>
-                <p className="text-gray-600 mb-4">
-                  Choose an event from the list to start managing attendance
+                <p className="text-gray-600 mb-6">
+                  Choose an event from the list to view and manage attendance
                 </p>
-                {isMobile && (
+                
+                {/* CTA Buttons */}
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  {isMobile && (
+                    <button
+                      onClick={() => setShowEventsPanel(true)}
+                      className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
+                    >
+                      Show Events List
+                    </button>
+                  )}
                   <button
-                    onClick={() => setShowEventsPanel(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium"
+                    onClick={openScanner}
+                    className={`cursor-pointer flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium ${
+                      hasEventToday
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                    }`}
                   >
-                    Show Events List
+                    <ScanLine className="w-5 h-5" />
+                    {hasEventToday ? 'Scan Attendance Now' : 'Open Scanner'}
                   </button>
-                )}
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
-
-      
-      <canvas ref={canvasRef} className="hidden" />
     </SidebarLayout>
   );
 }

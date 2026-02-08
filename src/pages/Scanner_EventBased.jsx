@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { supabase } from '../database/supabase';
+import { ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function Scanner() {
+  const navigate = useNavigate();
   const [scanMessage, setScanMessage] = useState('');
   const [scanMessageType, setScanMessageType] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -11,19 +14,23 @@ export default function Scanner() {
   const [cameraId, setCameraId] = useState(null);
   
   // Event-related states
+  const [currentEvent, setCurrentEvent] = useState(null);
   const [todayEvents, setTodayEvents] = useState([]);
-  const [selectedEvent, setSelectedEvent] = useState(null);
   const [showEventSelector, setShowEventSelector] = useState(false);
+  const [autoSelectAttempted, setAutoSelectAttempted] = useState(false);
   
   const html5QrCodeRef = useRef(null);
   const scanCooldownRef = useRef(false);
   const lastScannedRef = useRef('');
   const resumeTimeoutRef = useRef(null);
 
-  // Fetch today's events
-  const fetchTodayEvents = async () => {
+  // Fetch and auto-select today's event
+  const fetchAndSelectEvent = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const currentTime = now.toTimeString().slice(0, 5); // HH:MM format
+      
       const { data, error } = await supabase
         .from('events')
         .select('*')
@@ -36,19 +43,41 @@ export default function Scanner() {
       if (data && data.length > 0) {
         setTodayEvents(data);
         
-        // Auto-select if only one event
+        // Auto-select logic
         if (data.length === 1) {
-          setSelectedEvent(data[0]);
+          // Only one event today - auto-select it
+          setCurrentEvent(data[0]);
           setShowEventSelector(false);
-        } else if (data.length > 1) {
-          setShowEventSelector(true);
+          handleFeedback(`Auto-selected: ${data[0].title}`, 'success');
+        } else {
+          // Multiple events - try to find the current/next one
+          const currentOrNext = data.find(event => {
+            return currentTime < event.end_time;
+          });
+          
+          if (currentOrNext) {
+            setCurrentEvent(currentOrNext);
+            setShowEventSelector(false);
+            handleFeedback(`Auto-selected: ${currentOrNext.title}`, 'success');
+          } else {
+            // All events have passed, select the last one
+            setCurrentEvent(data[data.length - 1]);
+            setShowEventSelector(false);
+            handleFeedback(`Auto-selected: ${data[data.length - 1].title}`, 'success');
+          }
         }
       } else {
         setTodayEvents([]);
+        setCurrentEvent(null);
         setShowEventSelector(false);
+        handleFeedback('No approved events today', 'warning');
       }
+      
+      setAutoSelectAttempted(true);
     } catch (error) {
       console.error('Error fetching events:', error);
+      handleFeedback('Error loading events', 'error');
+      setAutoSelectAttempted(true);
     }
   };
 
@@ -56,12 +85,12 @@ export default function Scanner() {
   const getEventAttendanceCount = async (eventId) => {
     if (!eventId) return 0;
     try {
-      const { data } = await supabase
+      const { count } = await supabase
         .from('event_attendance')
         .select('*', { count: 'exact', head: true })
         .eq('event_id', eventId);
       
-      return data?.length || 0;
+      return count || 0;
     } catch (error) {
       console.error('Error fetching event attendance:', error);
       return 0;
@@ -69,8 +98,7 @@ export default function Scanner() {
   };
 
   useEffect(() => {
-    fetchTodayEvents();
-    initCamera();
+    fetchAndSelectEvent();
     
     return () => {
       stopScanner();
@@ -80,16 +108,24 @@ export default function Scanner() {
     };
   }, []);
 
-  // Update count when event changes
+  // Initialize camera after event is selected
   useEffect(() => {
-    if (selectedEvent) {
+    if (currentEvent && autoSelectAttempted) {
+      initCamera();
       updateEventCount();
     }
-  }, [selectedEvent]);
+  }, [currentEvent, autoSelectAttempted]);
+
+  // Update count when event changes
+  useEffect(() => {
+    if (currentEvent) {
+      updateEventCount();
+    }
+  }, [currentEvent]);
 
   const updateEventCount = async () => {
-    if (selectedEvent) {
-      const count = await getEventAttendanceCount(selectedEvent.id);
+    if (currentEvent) {
+      const count = await getEventAttendanceCount(currentEvent.id);
       setTodayCount(count);
     }
   };
@@ -104,9 +140,9 @@ export default function Scanner() {
           device.label.toLowerCase().includes('environment')
         );
         
-        const cameraId = backCamera ? backCamera.id : devices[0].id;
-        setCameraId(cameraId);
-        startScanner(cameraId);
+        const selectedCameraId = backCamera ? backCamera.id : devices[0].id;
+        setCameraId(selectedCameraId);
+        startScanner(selectedCameraId);
       } else {
         handleFeedback('No camera found', 'error');
       }
@@ -178,8 +214,8 @@ export default function Scanner() {
 
     try {
       // CRITICAL: Must have an event selected
-      if (!selectedEvent) {
-        handleFeedback('No event selected. Please select an event first.', 'warning');
+      if (!currentEvent) {
+        handleFeedback('No event available. Please check back later.', 'warning');
         return;
       }
 
@@ -204,11 +240,11 @@ export default function Scanner() {
       const { data: existingAttendance } = await supabase
         .from('event_attendance')
         .select('*')
-        .eq('event_id', selectedEvent.id)
+        .eq('event_id', currentEvent.id)
         .eq('worker_id', worker.id);
 
       if (existingAttendance?.length > 0) {
-        handleFeedback(`${worker.name} already checked in to this event`, 'warning');
+        handleFeedback(`${worker.name} already checked in`, 'warning');
         return;
       }
 
@@ -216,7 +252,7 @@ export default function Scanner() {
       const { error: insertError } = await supabase
         .from('event_attendance')
         .insert([{
-          event_id: selectedEvent.id,
+          event_id: currentEvent.id,
           worker_id: worker.id,
           check_in_time: new Date().toISOString(),
           scan_type: 'qr',
@@ -226,7 +262,7 @@ export default function Scanner() {
 
       if (insertError) throw insertError;
       
-      handleFeedback(`✓ ${worker.name} - ${selectedEvent.title}`, 'success');
+      handleFeedback(`✓ ${worker.name} - ${currentEvent.title}`, 'success');
       updateEventCount();
       
     } catch (e) {
@@ -253,9 +289,10 @@ export default function Scanner() {
 
   const handleEventChange = (eventId) => {
     const event = todayEvents.find(e => e.id === eventId);
-    setSelectedEvent(event);
+    setCurrentEvent(event);
     if (event) {
       setShowEventSelector(false);
+      handleFeedback(`Switched to: ${event.title}`, 'success');
     }
   };
 
@@ -272,23 +309,32 @@ export default function Scanner() {
         </div>
       )}
 
+      {/* Back Button */}
+      <button
+        onClick={() => navigate(-1)}
+        className="fixed top-6 left-6 z-50 flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition border border-gray-200"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        <span className="font-semibold text-sm">Back</span>
+      </button>
+
       {/* Header */}
-      <div className="w-full max-w-sm mb-4 flex justify-between items-end">
+      <div className="w-full max-w-sm mb-4 flex justify-between items-end mt-12">
         <div>
           <h2 className="text-2xl font-black text-gray-900">Scanner</h2>
           <p className="text-sm text-gray-500">
-            {selectedEvent ? selectedEvent.title : 'Event Attendance System'}
+            {currentEvent ? currentEvent.title : 'Event Attendance System'}
           </p>
         </div>
         <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-gray-200 text-center">
           <span className="block text-xs font-bold text-gray-400 uppercase tracking-tighter">
-            {selectedEvent ? 'Event Scans' : 'Select Event'}
+            {currentEvent ? 'Scans' : 'No Event'}
           </span>
           <span className="text-xl font-black text-blue-600">{todayCount}</span>
         </div>
       </div>
 
-      {/* Event Selector */}
+      {/* Event Display/Selector */}
       {todayEvents.length > 0 ? (
         <div className="w-full max-w-sm mb-4">
           {showEventSelector ? (
@@ -297,7 +343,7 @@ export default function Scanner() {
                 Select Event to Check In
               </label>
               <select
-                value={selectedEvent?.id || ''}
+                value={currentEvent?.id || ''}
                 onChange={(e) => handleEventChange(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
               >
@@ -309,17 +355,17 @@ export default function Scanner() {
                 ))}
               </select>
             </div>
-          ) : selectedEvent && (
+          ) : currentEvent && (
             <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl shadow-sm p-4 text-white">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <p className="text-xs font-bold uppercase tracking-wider opacity-80">Current Event</p>
-                  <p className="font-bold text-lg mt-1">{selectedEvent.title}</p>
+                  <p className="font-bold text-lg mt-1">{currentEvent.title}</p>
                   <p className="text-xs opacity-90 mt-1">
-                    ⏰ {selectedEvent.start_time} - {selectedEvent.end_time}
+                    ⏰ {currentEvent.start_time} - {currentEvent.end_time}
                   </p>
-                  {selectedEvent.place && (
-                    <p className="text-xs opacity-90">📍 {selectedEvent.place}</p>
+                  {currentEvent.place && (
+                    <p className="text-xs opacity-90">📍 {currentEvent.place}</p>
                   )}
                 </div>
                 {todayEvents.length > 1 && (
@@ -356,7 +402,7 @@ export default function Scanner() {
               <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-sm"></div>
               
               {/* Scanning Line */}
-              {isScanning && !processing && selectedEvent && (
+              {isScanning && !processing && currentEvent && (
                 <div className="absolute left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-green-500 to-transparent shadow-[0_0_15px_rgba(34,197,94,0.8)] animate-scan"></div>
               )}
             </div>
@@ -367,13 +413,13 @@ export default function Scanner() {
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${
-              !selectedEvent ? 'bg-orange-500 animate-pulse' :
+              !currentEvent ? 'bg-orange-500 animate-pulse' :
               processing ? 'bg-yellow-500 animate-pulse' : 
               isScanning ? 'bg-green-500' : 
               'bg-gray-300'
             }`}></span>
             <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-              {!selectedEvent ? 'Select Event' :
+              {!currentEvent ? 'No Event' :
                processing ? 'Processing...' : 
                isScanning ? 'Ready to Scan' : 
                'Initializing...'}
@@ -388,9 +434,9 @@ export default function Scanner() {
 
       {/* Instructions */}
       <div className="mt-6 text-center max-w-sm">
-        {!selectedEvent ? (
+        {!currentEvent ? (
           <div className="text-sm font-medium px-4 py-2 rounded-lg bg-orange-100 text-orange-800 border border-orange-200">
-            ⚠️ Please select an event above to begin scanning
+            ⚠️ No approved events today. Scanner inactive.
           </div>
         ) : (
           <div className={`text-sm font-medium px-4 py-2 rounded-lg ${
