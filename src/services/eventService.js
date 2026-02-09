@@ -1,19 +1,23 @@
+// ============================================================================
+// EVENT SERVICE - MERGED VERSION
+// ============================================================================
+// Combines your existing functionality with attendance sync improvements
+// ============================================================================
+
 import { supabase } from './supabase';
 
-/**
- * Event Service
- * Handles all event-related database operations
- */
 export const eventService = {
+  // =========================================================================
+  // EVENT CRUD OPERATIONS
+  // =========================================================================
   
   /**
-   * Get all events
+   * Get all events with optional filters
    */
   async getAllEvents(filters = {}) {
     let query = supabase
       .from('events')
       .select('*')
-      // UPDATED: 'date' -> 'event_date'
       .order('event_date', { ascending: false });
     
     if (filters.type) {
@@ -25,11 +29,23 @@ export const eventService = {
     }
     
     if (filters.startDate && filters.endDate) {
-      // UPDATED: 'date' -> 'event_date'
       query = query.gte('event_date', filters.startDate).lte('event_date', filters.endDate);
     }
     
     return await query;
+  },
+
+  /**
+   * Get event by ID
+   */
+  async getEventById(eventId) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .eq('id', eventId)
+      .single();
+    
+    return { data, error };
   },
 
   /**
@@ -41,7 +57,6 @@ export const eventService = {
     return await supabase
       .from('events')
       .select('*')
-      // UPDATED: 'date' -> 'event_date'
       .eq('event_date', today)
       .eq('status', 'approved')
       .order('start_time', { ascending: true });
@@ -54,7 +69,6 @@ export const eventService = {
     return await supabase
       .from('events')
       .select('*')
-      // UPDATED: 'date' -> 'event_date'
       .eq('event_date', date)
       .order('start_time', { ascending: true });
   },
@@ -69,7 +83,6 @@ export const eventService = {
       const { data: existing, error: fetchError } = await supabase
         .from('events')
         .select('*')
-        // UPDATED: 'date' -> 'event_date'
         .eq('event_date', date)
         .eq('type', 'sunday_service')
         .single();
@@ -78,8 +91,7 @@ export const eventService = {
         return { data: existing, error: null };
       }
       
-      // Use database function to create Sunday Service event
-      // This calls the RPC function we just fixed in SQL
+      // Use database function to create Sunday Service event (if available)
       const { data: eventId, error: rpcError } = await supabase
         .rpc('create_sunday_service_event', {
           p_date: date,
@@ -104,10 +116,32 @@ export const eventService = {
   },
 
   /**
+   * Get all Sunday service events (including recurring instances)
+   */
+  async getSundayServiceEvents(startDate, endDate) {
+    let query = supabase
+      .from('events')
+      .select('*')
+      .eq('type', 'sunday_service')
+      .eq('status', 'approved');
+
+    if (startDate) {
+      query = query.gte('event_date', startDate);
+    }
+    if (endDate) {
+      query = query.lte('event_date', endDate);
+    }
+
+    query = query.order('event_date', { ascending: true });
+
+    const { data, error } = await query;
+    return { data, error };
+  },
+
+  /**
    * Create a new event
    */
   async createEvent(eventData) {
-    // Ensure the incoming object uses 'event_date' before inserting
     return await supabase
       .from('events')
       .insert([eventData])
@@ -137,8 +171,61 @@ export const eventService = {
       .eq('id', eventId);
   },
 
+  // =========================================================================
+  // ATTENDANCE OPERATIONS - UPDATED FOR DATABASE SYNC
+  // =========================================================================
+  
+  /**
+   * Record attendance for an event
+   * UPDATED: Database trigger now automatically calculates attendance_status
+   */
+  async recordAttendance(eventId, workerId, scanType = 'qr', options = {}) {
+    try {
+      // Check if already checked in
+      const { data: existing } = await supabase
+        .from('event_attendance')
+        .select('*')
+        .eq('event_id', eventId)
+        .eq('worker_id', workerId)
+        .single();
+      
+      if (existing) {
+        return { 
+          data: null, 
+          error: { message: 'Already checked in to this event' } 
+        };
+      }
+      
+      // Record attendance
+      // The database trigger will automatically calculate attendance_status
+      const { data, error } = await supabase
+        .from('event_attendance')
+        .insert([{
+          event_id: eventId,
+          worker_id: workerId,
+          check_in_time: new Date().toISOString(),
+          scan_type: scanType,
+          is_guest: options.isGuest || false,
+          is_baptized: options.isBaptized !== undefined ? options.isBaptized : true,
+          notes: options.notes || null
+        }])
+        .select(`
+          *,
+          worker:workers(*),
+          event:events(*)
+        `)
+        .single();
+
+      return { data, error };
+    } catch (error) {
+      console.error('Error recording attendance:', error);
+      return { data: null, error };
+    }
+  },
+
   /**
    * Get event attendance records
+   * UPDATED: Now includes database-computed attendance_status
    */
   async getEventAttendance(eventId) {
     return await supabase
@@ -147,16 +234,16 @@ export const eventService = {
         *,
         worker:workers(id, name, ministry, email, contact),
         event:events(id, title, type, event_date, start_time, end_time)
-      `) // UPDATED: 'date' -> 'event_date' in nested select
+      `)
       .eq('event_id', eventId)
       .order('check_in_time', { ascending: false });
   },
 
   /**
-   * Get attendance status view for an event
+   * Get attendance using the status view
+   * UPDATED: Now uses database-computed status from the view
    */
   async getEventAttendanceWithStatus(eventId) {
-    // Queries the view we just recreated in SQL
     return await supabase
       .from('attendance_status_view')
       .select('*')
@@ -165,37 +252,70 @@ export const eventService = {
   },
 
   /**
-   * Record attendance for an event
+   * Get attendance by view with filters
+   * UPDATED: For worker logs - uses database-computed status
    */
-  async recordAttendance(eventId, workerId, scanType = 'qr') {
-    // Check if already checked in
-    const { data: existing } = await supabase
-      .from('event_attendance')
-      .select('*')
-      .eq('event_id', eventId)
-      .eq('worker_id', workerId)
-      .single();
-    
-    if (existing) {
-      return { 
-        data: null, 
-        error: { message: 'Already checked in to this event' } 
-      };
+  async getAttendanceByView(filters = {}) {
+    let query = supabase
+      .from('attendance_status_view')
+      .select('*');
+
+    if (filters.workerId) {
+      query = query.eq('worker_id', filters.workerId);
     }
-    
-    // Record attendance
-    return await supabase
+    if (filters.eventId) {
+      query = query.eq('event_id', filters.eventId);
+    }
+    if (filters.eventType) {
+      query = query.eq('event_type', filters.eventType);
+    }
+    if (filters.startDate) {
+      query = query.gte('event_date', filters.startDate);
+    }
+    if (filters.endDate) {
+      query = query.lte('event_date', filters.endDate);
+    }
+    if (filters.status) {
+      query = query.eq('status', filters.status);
+    }
+
+    query = query.order('event_date', { ascending: false });
+
+    const { data, error } = await query;
+    return { data, error };
+  },
+
+  /**
+   * Update attendance check-in time
+   * UPDATED: Database trigger will recalculate status automatically
+   */
+  async updateAttendanceTime(attendanceId, newCheckInTime) {
+    const { data, error } = await supabase
       .from('event_attendance')
-      .insert([{
-        event_id: eventId,
-        worker_id: workerId,
-        check_in_time: new Date().toISOString(),
-        scan_type: scanType,
-        is_guest: false,
-        is_baptized: true
-      }])
-      .select()
+      .update({ 
+        check_in_time: newCheckInTime 
+      })
+      .eq('id', attendanceId)
+      .select(`
+        *,
+        worker:workers(*),
+        event:events(*)
+      `)
       .single();
+
+    return { data, error };
+  },
+
+  /**
+   * Delete attendance record
+   */
+  async deleteAttendance(attendanceId) {
+    const { error } = await supabase
+      .from('event_attendance')
+      .delete()
+      .eq('id', attendanceId);
+
+    return { error };
   },
 
   /**
@@ -209,7 +329,6 @@ export const eventService = {
     
     if (startDate && endDate) {
       query = query
-        // UPDATED: 'date' -> 'event_date' (matches the View column)
         .gte('event_date', startDate)
         .lte('event_date', endDate);
     }
@@ -220,6 +339,7 @@ export const eventService = {
   /**
    * Get worker's monthly attendance
    * Returns map of date -> attendance data
+   * UPDATED: Uses database-computed status
    */
   async getWorkerMonthlyAttendance(workerId, year, month) {
     const startDate = new Date(year, month - 1, 1);
@@ -233,7 +353,6 @@ export const eventService = {
       .from('attendance_status_view')
       .select('*')
       .eq('worker_id', workerId)
-      // UPDATED: 'date' -> 'event_date'
       .gte('event_date', startDateStr)
       .lte('event_date', endDateStr)
       .order('event_date', { ascending: true });
@@ -243,7 +362,6 @@ export const eventService = {
     // Build a map: date -> array of events attended that day
     const attendanceMap = {};
     data?.forEach(record => {
-      // UPDATED: Accessing the correct property from the View
       const dateKey = record.event_date;
       if (!attendanceMap[dateKey]) {
         attendanceMap[dateKey] = [];
@@ -252,7 +370,7 @@ export const eventService = {
         eventId: record.event_id,
         eventTitle: record.event_title,
         eventType: record.event_type,
-        status: record.status || 'present', // Fallback if status is null in view
+        status: record.status || 'present', // Database-computed status
         checkInTime: record.check_in_time,
         startTime: record.start_time,
         endTime: record.end_time
@@ -264,27 +382,29 @@ export const eventService = {
 
   /**
    * Get event summary statistics
+   * UPDATED: Uses database-computed status
    */
   async getEventSummary(eventId) {
-    // Attempt to use RPC, fall back to manual calc if it fails/doesn't exist
+    // Try to use RPC first (if available)
     const { data, error } = await supabase
       .rpc('get_event_attendance_summary', { p_event_id: eventId });
     
     if (error) {
       console.warn('RPC get_event_attendance_summary failed, calculating manually:', error.message);
       
+      // Fallback: Calculate manually using database-computed status
       const { data: attendance } = await this.getEventAttendanceWithStatus(eventId);
       
-      // Calculate status manually if RPC fails
-      // Note: "status" calculation logic is client-side here for fallback
-      const present = attendance?.length || 0; 
+      const presentCount = attendance?.filter(a => a.status === 'present').length || 0;
+      const lateCount = attendance?.filter(a => a.status === 'late').length || 0;
+      const absentCount = attendance?.filter(a => a.status === 'absent').length || 0;
       
       return {
         data: {
-          total_count: present,
-          present_count: present, 
-          late_count: 0, // Simplified fallback
-          absent_count: 0
+          total_count: attendance?.length || 0,
+          present_count: presentCount,
+          late_count: lateCount,
+          absent_count: absentCount
         },
         error: null
       };
@@ -294,15 +414,51 @@ export const eventService = {
   },
 
   /**
+   * Get attendance summary for an event
+   * UPDATED: Uses database-computed attendance_status
+   */
+  async getEventAttendanceSummary(eventId) {
+    try {
+      // Get total workers
+      const { count: totalWorkers } = await supabase
+        .from('workers')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'Active');
+
+      // Get attendance with status breakdown
+      const { data: attendance, error } = await supabase
+        .from('event_attendance')
+        .select('attendance_status')
+        .eq('event_id', eventId);
+
+      if (error) throw error;
+
+      const summary = {
+        totalWorkers: totalWorkers || 0,
+        scanned: attendance?.length || 0,
+        present: attendance?.filter(a => a.attendance_status === 'present').length || 0,
+        late: attendance?.filter(a => a.attendance_status === 'late').length || 0,
+        absent: attendance?.filter(a => a.attendance_status === 'absent').length || 0,
+        notScanned: (totalWorkers || 0) - (attendance?.length || 0)
+      };
+
+      return { data: summary, error: null };
+    } catch (error) {
+      console.error('Error getting attendance summary:', error);
+      return { data: null, error };
+    }
+  },
+
+  /**
    * Calculate attendance status based on check-in time
-   * Client-side helper
+   * DEPRECATED: Client-side helper kept for backward compatibility
+   * NOTE: The database now calculates this automatically via trigger
    */
   calculateStatus(checkInTime, startTime, endTime) {
     const checkIn = new Date(`2000-01-01T${checkInTime}`);
     const start = new Date(`2000-01-01T${startTime}`);
     const end = new Date(`2000-01-01T${endTime}`);
     
-    // Before start + 30 min = Present
     const lateThreshold = new Date(start.getTime() + 30 * 60 * 1000);
     
     if (checkIn < lateThreshold) {
@@ -316,6 +472,7 @@ export const eventService = {
 
   /**
    * Export event attendance to CSV
+   * UPDATED: Uses database-computed status
    */
   async exportEventAttendance(eventId) {
     const { data, error } = await this.getEventAttendanceWithStatus(eventId);
@@ -338,15 +495,92 @@ export const eventService = {
         `"${record.worker_name}"`,
         `"${record.ministry}"`,
         `"${record.event_title}"`,
-        // UPDATED: 'date' -> 'event_date'
         record.event_date,
         checkInTime,
-        // robust casing for status
         (record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Present')
       ];
       csvRows.push(row.join(','));
     });
     
     return csvRows.join('\n');
+  },
+
+  // =========================================================================
+  // RECURRING EVENTS SUPPORT
+  // =========================================================================
+  
+  /**
+   * Get attendance for recurring event series
+   */
+  async getSeriesAttendance(parentEventId) {
+    try {
+      // Get all events in the series
+      const { data: seriesEvents } = await supabase
+        .from('events')
+        .select('id, event_date, title')
+        .or(`id.eq.${parentEventId},parent_event_id.eq.${parentEventId}`)
+        .order('event_date', { ascending: true });
+
+      if (!seriesEvents) return { data: null, error: 'Series not found' };
+
+      // Get attendance for all events in series
+      const eventIds = seriesEvents.map(e => e.id);
+      const { data: attendance } = await supabase
+        .from('attendance_status_view')
+        .select('*')
+        .in('event_id', eventIds)
+        .order('event_date', { ascending: true });
+
+      return { 
+        data: {
+          events: seriesEvents,
+          attendance: attendance || []
+        }, 
+        error: null 
+      };
+    } catch (error) {
+      console.error('Error getting series attendance:', error);
+      return { data: null, error };
+    }
+  },
+
+  /**
+   * Verify worker attendance sync for a specific date range
+   * Useful for debugging sync issues
+   */
+  async verifyAttendanceSync(startDate, endDate) {
+    try {
+      // Get attendance from view
+      const { data: viewData } = await this.getAttendanceByView({
+        startDate,
+        endDate
+      });
+
+      // Get attendance from table
+      const { data: tableData } = await supabase
+        .from('event_attendance')
+        .select(`
+          *,
+          event:events!inner(event_date, type, start_time)
+        `)
+        .gte('event:events.event_date', startDate)
+        .lte('event:events.event_date', endDate);
+
+      return {
+        data: {
+          viewRecords: viewData?.length || 0,
+          tableRecords: tableData?.length || 0,
+          synced: viewData?.length === tableData?.length,
+          viewData,
+          tableData
+        },
+        error: null
+      };
+    } catch (error) {
+      console.error('Error verifying sync:', error);
+      return { data: null, error };
+    }
   }
 };
+
+export default eventService;

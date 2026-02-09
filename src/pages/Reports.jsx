@@ -1,125 +1,275 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
 import { 
   Download, 
-  Filter, 
   Calendar, 
   Users, 
-  CheckCircle, 
-  XCircle, 
   Clock,
   FileText,
   BarChart3,
-  PieChart,
-  ChevronDown,
-  ChevronUp,
-  Search,
-  Printer,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  Filter,
+  X,
+  ChevronRight,
+  FileSpreadsheet,
+  Loader2
 } from 'lucide-react';
-import { format, parseISO, startOfWeek, endOfWeek, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns';
+import { format, parseISO, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Calculate attendance status based on check-in time and event type
+ * Sunday Service: 6AM-9AM = Present, 9AM-9:15AM = Late, After 9:15AM = Absent
+ * Other Events: On-time/15min = Present, 16-30min = Late, 30min+ = Absent
+ */
+const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
+  if (!checkInTime) return { status: 'absent', label: 'Absent', color: 'red' };
+  
+  const time = new Date(checkInTime);
+  const hours = time.getHours();
+  const minutes = time.getMinutes();
+  const totalMinutes = (hours * 60) + minutes;
+  
+  // Sunday Service specific logic
+  if (eventType === 'sunday_service') {
+    if (totalMinutes >= 360 && totalMinutes < 540) {
+      return { status: 'present', label: 'Present', color: 'green' };
+    } else if (totalMinutes >= 540 && totalMinutes < 555) {
+      return { status: 'late', label: 'Late', color: 'yellow' };
+    } else {
+      return { status: 'absent', label: 'Absent', color: 'red' };
+    }
+  }
+  
+  // Other event types - compare with event start time
+  if (eventStartTime) {
+    const [startHour, startMinute] = eventStartTime.split(':').map(Number);
+    const startTotalMinutes = startHour * 60 + startMinute;
+    const minutesLate = totalMinutes - startTotalMinutes;
+    
+    if (minutesLate <= 15) {
+      return { status: 'present', label: 'Present', color: 'green' };
+    } else if (minutesLate <= 30) {
+      return { status: 'late', label: 'Late', color: 'yellow' };
+    } else {
+      return { status: 'absent', label: 'Absent', color: 'red' };
+    }
+  }
+  
+  return { status: 'present', label: 'Present', color: 'green' };
+};
+
+/**
+ * Get status badge styling
+ */
+const getStatusBadge = (status) => {
+  switch(status) {
+    case 'present':
+      return 'bg-green-100 text-green-800 border-green-200';
+    case 'late':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'absent':
+      return 'bg-red-100 text-red-800 border-red-200';
+    default:
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+/**
+ * Event type configuration with labels and colors
+ */
+const EVENT_TYPES = {
+  sunday_service: { label: 'Sunday Service', color: 'bg-purple-100 text-purple-800', icon: '⛪' },
+  prayer_meeting: { label: 'Prayer Meeting', color: 'bg-blue-100 text-blue-800', icon: '🙏' },
+  bible_study: { label: 'Bible Study', color: 'bg-green-100 text-green-800', icon: '📖' },
+  meet: { label: 'Meeting / Setup', color: 'bg-orange-100 text-orange-800', icon: '📋' },
+  outreach: { label: 'Workers Conference', color: 'bg-red-100 text-red-800', icon: '🎯' },
+  church_event: { label: 'Church Event', color: 'bg-indigo-100 text-indigo-800', icon: '🎉' }
+};
+
+// ============================================================================
+// SUBCOMPONENTS
+// ============================================================================
+
+/**
+ * Summary Statistics Card Component
+ */
+const StatCard = ({ icon: Icon, label, value, trend, color = 'blue' }) => {
+  const colorClasses = {
+    blue: 'from-blue-600 to-blue-700',
+    green: 'from-green-600 to-green-700',
+    yellow: 'from-yellow-500 to-yellow-600',
+    red: 'from-red-600 to-red-700',
+    purple: 'from-purple-600 to-purple-700',
+    indigo: 'from-indigo-600 to-indigo-700'
+  };
+  
+  return (
+    <div className={`bg-gradient-to-br ${colorClasses[color]} rounded-2xl p-6 text-white shadow-lg transform hover:scale-105 transition-all`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="bg-white bg-opacity-20 p-3 rounded-xl">
+          <Icon className="w-6 h-6" />
+        </div>
+        {trend && (
+          <div className="flex items-center gap-1 bg-white bg-opacity-20 px-3 py-1 rounded-full text-sm font-semibold">
+            <TrendingUp className="w-4 h-4" />
+            {trend}
+          </div>
+        )}
+      </div>
+      <p className="text-sm text-white text-opacity-90 font-medium mb-1">{label}</p>
+      <p className="text-4xl font-extrabold">{value}</p>
+    </div>
+  );
+};
+
+/**
+ * Simple Bar Chart Component
+ */
+const SimpleBarChart = ({ data, title, xKey, yKey, color = 'blue' }) => {
+  if (!data || data.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">{title}</h3>
+        <div className="flex items-center justify-center h-64 text-gray-400">
+          <p>No data available</p>
+        </div>
+      </div>
+    );
+  }
+  
+  const maxValue = Math.max(...data.map(d => d[yKey]));
+  
+  const colorClasses = {
+    blue: 'bg-blue-600',
+    green: 'bg-green-600',
+    purple: 'bg-purple-600',
+    orange: 'bg-orange-600'
+  };
+  
+  return (
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
+      <h3 className="text-lg font-bold text-gray-900 mb-6">{title}</h3>
+      <div className="space-y-4">
+        {data.map((item, index) => (
+          <div key={index} className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-gray-700">{item[xKey]}</span>
+              <span className="font-bold text-gray-900">{item[yKey]}</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div 
+                className={`h-full ${colorClasses[color]} rounded-full transition-all duration-500`}
+                style={{ width: `${(item[yKey] / maxValue) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Export Button Component
+ */
+const ExportButton = ({ onClick, loading, type = 'CSV' }) => (
+  <button
+    onClick={onClick}
+    disabled={loading}
+    className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+  >
+    {loading ? (
+      <Loader2 className="w-4 h-4 animate-spin" />
+    ) : (
+      <Download className="w-4 h-4" />
+    )}
+    Export {type}
+  </button>
+);
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 export default function Reports() {
-  // State for Sunday Service Reports
-  const [sundayReports, setSundayReports] = useState([]);
+  // ========================================
+  // STATE MANAGEMENT
+  // ========================================
+  
+  const [viewMode, setViewMode] = useState('sunday'); // 'sunday', 'late', 'events'
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  
+  // Date range state
   const [dateRange, setDateRange] = useState({
-    startDate: format(new Date().setDate(new Date().getDate() - 30), 'yyyy-MM-dd'),
-    endDate: format(new Date(), 'yyyy-MM-dd')
+    startDate: format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'),
+    endDate: format(endOfMonth(new Date()), 'yyyy-MM-dd')
   });
-  const [selectedSunday, setSelectedSunday] = useState(null);
-  const [sundayDetails, setSundayDetails] = useState([]);
-  const [sundaySummary, setSundaySummary] = useState({
-    totalWorkers: 0,
-    present: 0,
-    late: 0,
-    absent: 0,
+  
+  // Data state
+  const [allWorkers, setAllWorkers] = useState([]);
+  const [sundayReports, setSundayReports] = useState([]);
+  const [eventReports, setEventReports] = useState([]);
+  const [lateWorkers, setLateWorkers] = useState([]);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [attendanceDetails, setAttendanceDetails] = useState([]);
+  
+  // Filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [eventTypeFilter, setEventTypeFilter] = useState('all');
+  const [ministryFilter, setMinistryFilter] = useState('all');
+  const [ministries, setMinistries] = useState([]);
+  
+  // Summary statistics
+  const [summaryStats, setSummaryStats] = useState({
+    totalEvents: 0,
+    totalAttendance: 0,
+    averageAttendance: 0,
     attendanceRate: 0
   });
 
-  // State for Late Workers Reports
-  const [lateWorkers, setLateWorkers] = useState([]);
-  const [lateLoading, setLateLoading] = useState(false);
-  const [lateDateRange, setLateDateRange] = useState({
-    startDate: format(new Date().setDate(new Date().getDate() - 30), 'yyyy-MM-dd'),
-    endDate: format(new Date(), 'yyyy-MM-dd')
-  });
-  const [lateMinistryFilter, setLateMinistryFilter] = useState('all');
-  const [lateMinistries, setLateMinistries] = useState([]);
-
-  // State for Event Attendance Reports
-  const [events, setEvents] = useState([]);
-  const [eventLoading, setEventLoading] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [eventAttendance, setEventAttendance] = useState([]);
-  const [eventSummary, setEventSummary] = useState({
-    total: 0,
-    scanned: 0,
-    pending: 0,
-    rate: 0
-  });
-
-  // State for all workers
-  const [allWorkers, setAllWorkers] = useState([]);
-  const [ministries, setMinistries] = useState([]);
-
-  // State for search and filtering
-  const [searchTerm, setSearchTerm] = useState('');
-  const [expandedReport, setExpandedReport] = useState(null);
-  const [viewMode, setViewMode] = useState('sunday'); // 'sunday', 'late', 'events'
-
-  // Helper function to calculate attendance status
-  const getAttendanceStatus = (checkInTime) => {
-    if (!checkInTime) return { status: 'absent', text: 'Absent' };
-    
-    const time = new Date(checkInTime);
-    const hours = time.getHours();
-    const minutes = time.getMinutes();
-    const totalMinutes = (hours * 60) + minutes;
-    
-    const absentThreshold = (9 * 60) + 15; // 9:15 AM
-    const lateThreshold = 9 * 60; // 9:00 AM
-    
-    if (totalMinutes >= absentThreshold) {
-      return { status: 'absent', text: 'Absent' };
-    }
-    
-    if (totalMinutes >= lateThreshold && totalMinutes < absentThreshold) {
-      return { status: 'late', text: 'Late' };
-    }
-    
-    return { status: 'present', text: 'Present' };
-  };
-
-  // Fetch all workers and ministries
-  const fetchWorkersAndMinistries = async () => {
+  // ========================================
+  // DATA FETCHING
+  // ========================================
+  
+  /**
+   * Fetch all active workers and extract ministries
+   */
+  const fetchWorkers = async () => {
     try {
-      const { data: workers, error } = await supabase
+      const { data, error } = await supabase
         .from('workers')
         .select('*')
+        .eq('status', 'Active')
         .order('name', { ascending: true });
       
       if (error) throw error;
       
-      setAllWorkers(workers || []);
+      setAllWorkers(data || []);
       
       // Extract unique ministries
-      const uniqueMinistries = [...new Set(workers?.map(worker => worker.ministry).filter(Boolean))];
-      setMinistries(uniqueMinistries);
-      setLateMinistries(uniqueMinistries);
+      const uniqueMinistries = [...new Set(data?.map(w => w.ministry).filter(Boolean))];
+      setMinistries(uniqueMinistries.sort());
     } catch (error) {
       console.error('Error fetching workers:', error);
     }
   };
-
-  // Fetch Sunday Service Reports
+  
+  /**
+   * Fetch Sunday Service Reports
+   * FIXED: Now properly queries event_attendance table
+   */
   const fetchSundayReports = async () => {
     setLoading(true);
     try {
-      // Get Sunday service events within date range
-      const { data: sundayEvents, error: eventsError } = await supabase
+      // Get Sunday service events
+      const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
         .eq('type', 'sunday_service')
@@ -129,52 +279,78 @@ export default function Reports() {
         .order('event_date', { ascending: false });
       
       if (eventsError) throw eventsError;
-
+      
+      // FIXED: Query event_attendance with worker join for each event
       const reports = await Promise.all(
-        (sundayEvents || []).map(async (event) => {
-          // Get attendance for this event
-          const { data: attendance, error: attendanceError } = await supabase
-            .from('attendance_status_view')
-            .select('*')
+        (events || []).map(async (event) => {
+          const { data: attendance, error: attError } = await supabase
+            .from('event_attendance')
+            .select(`
+              *,
+              worker:workers(*)
+            `)
             .eq('event_id', event.id);
           
-          if (attendanceError) throw attendanceError;
+          if (attError) throw attError;
           
-          // Calculate summary
+          // Calculate statistics with proper status calculation
           const totalWorkers = allWorkers.length;
           let presentCount = 0;
           let lateCount = 0;
-          let absentCount = 0;
+          let absentFromLate = 0;
           
-          if (attendance) {
-            attendance.forEach(record => {
-              const status = getAttendanceStatus(record.check_in_time);
-              if (status.status === 'present') presentCount++;
-              if (status.status === 'late') lateCount++;
-              if (status.status === 'absent') absentCount++;
-            });
-          }
+          (attendance || []).forEach(record => {
+            const status = calculateAttendanceStatus(
+              record.check_in_time, 
+              event.start_time, 
+              event.type
+            );
+            if (status.status === 'present') presentCount++;
+            else if (status.status === 'late') lateCount++;
+            else if (status.status === 'absent') absentFromLate++;
+          });
           
-          // Workers who didn't check in
-          absentCount += Math.max(0, totalWorkers - (presentCount + lateCount + absentCount));
-          
-          const attendanceRate = totalWorkers > 0 ? ((presentCount + lateCount) / totalWorkers) * 100 : 0;
+          const scannedCount = attendance?.length || 0;
+          const notScanned = Math.max(0, totalWorkers - scannedCount);
+          const totalAbsent = notScanned + absentFromLate;
+          const attendanceRate = totalWorkers > 0 
+            ? ((presentCount + lateCount) / totalWorkers) * 100 
+            : 0;
           
           return {
             id: event.id,
             date: event.event_date,
             formattedDate: format(parseISO(event.event_date), 'EEEE, MMMM d, yyyy'),
+            shortDate: format(parseISO(event.event_date), 'MMM d, yyyy'),
+            title: event.title,
             totalWorkers,
             present: presentCount,
             late: lateCount,
-            absent: absentCount,
+            absent: totalAbsent,
+            scanned: scannedCount,
             attendanceRate: parseFloat(attendanceRate.toFixed(1)),
-            eventTitle: event.title
+            attendanceRecords: attendance || []
           };
         })
       );
       
       setSundayReports(reports);
+      
+      // Calculate summary stats
+      const totalEvents = reports.length;
+      const totalAttendance = reports.reduce((sum, r) => sum + r.scanned, 0);
+      const avgAttendance = totalEvents > 0 ? totalAttendance / totalEvents : 0;
+      const avgRate = totalEvents > 0 
+        ? reports.reduce((sum, r) => sum + r.attendanceRate, 0) / totalEvents 
+        : 0;
+      
+      setSummaryStats({
+        totalEvents,
+        totalAttendance,
+        averageAttendance: Math.round(avgAttendance),
+        attendanceRate: parseFloat(avgRate.toFixed(1))
+      });
+      
     } catch (error) {
       console.error('Error fetching Sunday reports:', error);
       alert('Failed to load Sunday service reports');
@@ -182,544 +358,761 @@ export default function Reports() {
       setLoading(false);
     }
   };
-
-  // Fetch details for a specific Sunday
-  const fetchSundayDetails = async (eventId) => {
+  
+  /**
+   * Fetch Event Attendance Reports (all events EXCEPT Sunday Service)
+   * FIXED: Now includes all event types except sunday_service
+   */
+  const fetchEventReports = async () => {
+    setLoading(true);
     try {
-      const { data: attendance, error } = await supabase
-        .from('attendance_status_view')
+      // Get all events EXCEPT sunday_service
+      const { data: events, error: eventsError } = await supabase
+        .from('events')
         .select('*')
-        .eq('event_id', eventId)
-        .order('check_in_time', { ascending: false });
+        .neq('type', 'sunday_service')
+        .eq('status', 'approved')
+        .gte('event_date', dateRange.startDate)
+        .lte('event_date', dateRange.endDate)
+        .order('event_date', { ascending: false });
       
-      if (error) throw error;
+      if (eventsError) throw eventsError;
       
-      const attendanceWithStatus = (attendance || []).map(record => ({
-        ...record,
-        status: getAttendanceStatus(record.check_in_time)
-      }));
+      // FIXED: Query event_attendance with worker join for each event
+      const reports = await Promise.all(
+        (events || []).map(async (event) => {
+          const { data: attendance, error: attError } = await supabase
+            .from('event_attendance')
+            .select(`
+              *,
+              worker:workers(*)
+            `)
+            .eq('event_id', event.id);
+          
+          if (attError) throw attError;
+          
+          // Calculate statistics
+          const totalWorkers = allWorkers.length;
+          const scannedCount = attendance?.length || 0;
+          const pending = Math.max(0, totalWorkers - scannedCount);
+          const attendanceRate = totalWorkers > 0 
+            ? (scannedCount / totalWorkers) * 100 
+            : 0;
+          
+          return {
+            id: event.id,
+            date: event.event_date,
+            formattedDate: format(parseISO(event.event_date), 'EEEE, MMMM d, yyyy'),
+            shortDate: format(parseISO(event.event_date), 'MMM d, yyyy'),
+            title: event.title,
+            type: event.type,
+            place: event.place,
+            startTime: event.start_time,
+            endTime: event.end_time,
+            totalWorkers,
+            scanned: scannedCount,
+            pending,
+            attendanceRate: parseFloat(attendanceRate.toFixed(1)),
+            attendanceRecords: attendance || []
+          };
+        })
+      );
       
-      setSundayDetails(attendanceWithStatus);
+      setEventReports(reports);
       
-      // Calculate summary
-      const totalWorkers = allWorkers.length;
-      let presentCount = 0;
-      let lateCount = 0;
-      let absentCount = 0;
+      // Calculate summary stats
+      const totalEvents = reports.length;
+      const totalAttendance = reports.reduce((sum, r) => sum + r.scanned, 0);
+      const avgAttendance = totalEvents > 0 ? totalAttendance / totalEvents : 0;
+      const avgRate = totalEvents > 0 
+        ? reports.reduce((sum, r) => sum + r.attendanceRate, 0) / totalEvents 
+        : 0;
       
-      attendanceWithStatus.forEach(record => {
-        if (record.status.status === 'present') presentCount++;
-        if (record.status.status === 'late') lateCount++;
-        if (record.status.status === 'absent') absentCount++;
+      setSummaryStats({
+        totalEvents,
+        totalAttendance,
+        averageAttendance: Math.round(avgAttendance),
+        attendanceRate: parseFloat(avgRate.toFixed(1))
       });
       
-      // Add workers who didn't check in
-      absentCount += Math.max(0, totalWorkers - attendanceWithStatus.length);
-      
-      const attendanceRate = totalWorkers > 0 ? ((presentCount + lateCount) / totalWorkers) * 100 : 0;
-      
-      setSundaySummary({
-        totalWorkers,
-        present: presentCount,
-        late: lateCount,
-        absent: absentCount,
-        attendanceRate: parseFloat(attendanceRate.toFixed(1))
-      });
     } catch (error) {
-      console.error('Error fetching Sunday details:', error);
+      console.error('Error fetching event reports:', error);
+      alert('Failed to load event attendance reports');
+    } finally {
+      setLoading(false);
     }
   };
-
-  // Fetch Late Workers Reports
+  
+  /**
+   * Fetch Late Workers Report
+   * FIXED: Now properly queries event_attendance table
+   */
   const fetchLateWorkers = async () => {
-    setLateLoading(true);
+    setLoading(true);
     try {
-      // Get Sunday service events within date range
-      const { data: sundayEvents, error: eventsError } = await supabase
+      // Get Sunday service events
+      const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
         .eq('type', 'sunday_service')
         .eq('status', 'approved')
-        .gte('event_date', lateDateRange.startDate)
-        .lte('event_date', lateDateRange.endDate);
+        .gte('event_date', dateRange.startDate)
+        .lte('event_date', dateRange.endDate);
       
       if (eventsError) throw eventsError;
       
       const lateRecords = [];
       
-      for (const event of (sundayEvents || [])) {
-        const { data: attendance, error: attendanceError } = await supabase
-          .from('attendance_status_view')
-          .select('*')
+      // FIXED: Query event_attendance for each event
+      for (const event of (events || [])) {
+        const { data: attendance, error: attError } = await supabase
+          .from('event_attendance')
+          .select(`
+            *,
+            worker:workers(*)
+          `)
           .eq('event_id', event.id);
         
-        if (attendanceError) throw attendanceError;
+        if (attError) throw attError;
         
-        const lateAttendance = (attendance || [])
-          .filter(record => {
-            const status = getAttendanceStatus(record.check_in_time);
-            return status.status === 'late';
-          })
-          .map(record => ({
-            ...record,
-            eventDate: event.event_date,
-            eventTitle: event.title,
-            formattedDate: format(parseISO(event.event_date), 'MMM d, yyyy'),
-            status: getAttendanceStatus(record.check_in_time)
-          }));
-        
-        lateRecords.push(...lateAttendance);
+        // Filter for late arrivals
+        (attendance || []).forEach(record => {
+          const status = calculateAttendanceStatus(
+            record.check_in_time,
+            event.start_time,
+            event.type
+          );
+          
+          if (status.status === 'late' && record.worker) {
+            const checkInTime = new Date(record.check_in_time);
+            const hours = checkInTime.getHours();
+            const minutes = checkInTime.getMinutes();
+            const totalMinutes = (hours * 60) + minutes;
+            const minutesLate = Math.max(0, totalMinutes - (9 * 60));
+            
+            lateRecords.push({
+              id: record.id,
+              workerName: record.worker.name,
+              ministry: record.worker.ministry,
+              eventDate: event.event_date,
+              eventTitle: event.title,
+              formattedDate: format(parseISO(event.event_date), 'MMM d, yyyy'),
+              checkInTime: record.check_in_time,
+              minutesLate,
+              status
+            });
+          }
+        });
       }
       
-      // Apply ministry filter
-      let filteredRecords = lateRecords;
-      if (lateMinistryFilter !== 'all') {
-        filteredRecords = lateRecords.filter(record => record.ministry === lateMinistryFilter);
-      }
+      setLateWorkers(lateRecords);
       
-      setLateWorkers(filteredRecords);
+      // Calculate summary stats
+      setSummaryStats({
+        totalEvents: events?.length || 0,
+        totalLateInstances: lateRecords.length,
+        uniqueWorkers: new Set(lateRecords.map(r => r.workerName)).size,
+        averageLateMinutes: lateRecords.length > 0
+          ? Math.round(lateRecords.reduce((sum, r) => sum + r.minutesLate, 0) / lateRecords.length)
+          : 0
+      });
+      
     } catch (error) {
       console.error('Error fetching late workers:', error);
       alert('Failed to load late workers report');
     } finally {
-      setLateLoading(false);
+      setLoading(false);
     }
   };
-
-  // Fetch Events for Event Attendance Report (EXCLUDING Sunday Service)
-  const fetchEvents = async () => {
-    setEventLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .gte('event_date', dateRange.startDate)
-        .lte('event_date', dateRange.endDate)
-        .eq('status', 'approved')
-        .neq('type', 'sunday_service') // EXCLUDE Sunday Service events
-        .order('event_date', { ascending: false });
-      
-      if (error) throw error;
-      
-      const eventsWithSummary = await Promise.all(
-        (data || []).map(async (event) => {
-          const { count } = await supabase
-            .from('event_attendance')
-            .select('*', { count: 'exact', head: true })
-            .eq('event_id', event.id);
-          
-          const totalWorkers = allWorkers.length;
-          const scanned = count || 0;
-          const pending = Math.max(0, totalWorkers - scanned);
-          const rate = totalWorkers > 0 ? (scanned / totalWorkers) * 100 : 0;
-          
-          return {
-            ...event,
-            scanned,
-            pending,
-            rate: parseFloat(rate.toFixed(1)),
-            formattedDate: format(parseISO(event.event_date), 'MMM d, yyyy'),
-            formattedTime: `${event.start_time} - ${event.end_time}`
-          };
-        })
-      );
-      
-      setEvents(eventsWithSummary);
-    } catch (error) {
-      console.error('Error fetching events:', error);
-      alert('Failed to load events');
-    } finally {
-      setEventLoading(false);
-    }
-  };
-
-  // Fetch attendance for a specific event
-  const fetchEventAttendance = async (eventId) => {
-    try {
-      const { data, error } = await supabase
-        .from('attendance_status_view')
-        .select('*')
-        .eq('event_id', eventId)
-        .order('check_in_time', { ascending: false });
-      
-      if (error) throw error;
-      
-      setEventAttendance(data || []);
-      
-      // Calculate summary
-      const totalWorkers = allWorkers.length;
-      const scanned = data?.length || 0;
-      const pending = Math.max(0, totalWorkers - scanned);
-      const rate = totalWorkers > 0 ? (scanned / totalWorkers) * 100 : 0;
-      
-      setEventSummary({
-        total: totalWorkers,
-        scanned,
-        pending,
-        rate: parseFloat(rate.toFixed(1))
+  
+  /**
+   * Load attendance details for a selected report
+   */
+  const loadAttendanceDetails = (report) => {
+    setSelectedReport(report);
+    
+    if (report.attendanceRecords) {
+      const details = report.attendanceRecords.map(record => {
+        const status = calculateAttendanceStatus(
+          record.check_in_time,
+          report.startTime,
+          report.type || 'sunday_service'
+        );
+        
+        return {
+          ...record,
+          workerName: record.worker?.name || 'Unknown',
+          ministry: record.worker?.ministry || 'N/A',
+          status
+        };
       });
-    } catch (error) {
-      console.error('Error fetching event attendance:', error);
+      
+      setAttendanceDetails(details);
     }
   };
 
-  // Initialize
-  useEffect(() => {
-    fetchWorkersAndMinistries();
-  }, []);
+  // ========================================
+  // EXPORT FUNCTIONS
+  // ========================================
+  
+  /**
+   * Export report to CSV
+   */
+  const exportToCSV = (report, details) => {
+    setExporting(true);
+    
+    try {
+      const headers = ['Name', 'Ministry', 'Check-in Time', 'Status', 'Event Date'];
+      const rows = [headers.join(',')];
+      
+      details.forEach(record => {
+        const row = [
+          `"${record.workerName}"`,
+          `"${record.ministry}"`,
+          `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}"`,
+          `"${record.status.label}"`,
+          `"${report.formattedDate}"`
+        ];
+        rows.push(row.join(','));
+      });
+      
+      const csvContent = rows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${report.type || 'sunday-service'}-${report.date}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export CSV');
+    } finally {
+      setExporting(false);
+    }
+  };
+  
+  /**
+   * Export late workers to CSV
+   */
+  const exportLateWorkersCSV = () => {
+    setExporting(true);
+    
+    try {
+      const headers = ['Name', 'Ministry', 'Event Date', 'Event Title', 'Check-in Time', 'Minutes Late'];
+      const rows = [headers.join(',')];
+      
+      filteredLateWorkers.forEach(worker => {
+        const row = [
+          `"${worker.workerName}"`,
+          `"${worker.ministry}"`,
+          `"${worker.formattedDate}"`,
+          `"${worker.eventTitle}"`,
+          `"${new Date(worker.checkInTime).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+          })}"`,
+          `"${worker.minutesLate} minutes"`
+        ];
+        rows.push(row.join(','));
+      });
+      
+      const csvContent = rows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `late-workers-${dateRange.startDate}-to-${dateRange.endDate}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export CSV');
+    } finally {
+      setExporting(false);
+    }
+  };
 
+  // ========================================
+  // FILTERING & COMPUTED DATA
+  // ========================================
+  
+  /**
+   * Filtered and searched reports
+   */
+  const filteredReports = useMemo(() => {
+    let reports = viewMode === 'sunday' ? sundayReports : eventReports;
+    
+    // Apply event type filter
+    if (eventTypeFilter !== 'all') {
+      reports = reports.filter(r => r.type === eventTypeFilter);
+    }
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      reports = reports.filter(r => 
+        r.title.toLowerCase().includes(search) ||
+        r.formattedDate.toLowerCase().includes(search)
+      );
+    }
+    
+    return reports;
+  }, [viewMode, sundayReports, eventReports, eventTypeFilter, searchTerm]);
+  
+  /**
+   * Filtered late workers
+   */
+  const filteredLateWorkers = useMemo(() => {
+    let workers = lateWorkers;
+    
+    // Apply ministry filter
+    if (ministryFilter !== 'all') {
+      workers = workers.filter(w => w.ministry === ministryFilter);
+    }
+    
+    // Apply search
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      workers = workers.filter(w =>
+        w.workerName.toLowerCase().includes(search) ||
+        w.ministry.toLowerCase().includes(search)
+      );
+    }
+    
+    return workers;
+  }, [lateWorkers, ministryFilter, searchTerm]);
+  
+  /**
+   * Chart data for event types
+   */
+  const eventTypeChartData = useMemo(() => {
+    const counts = {};
+    
+    eventReports.forEach(report => {
+      const type = report.type || 'other';
+      counts[type] = (counts[type] || 0) + 1;
+    });
+    
+    return Object.entries(counts).map(([type, count]) => ({
+      name: EVENT_TYPES[type]?.label || type,
+      count
+    }));
+  }, [eventReports]);
+  
+  /**
+   * Chart data for attendance trends
+   */
+  const attendanceTrendData = useMemo(() => {
+    const reports = viewMode === 'sunday' ? sundayReports : eventReports;
+    
+    return reports.slice(0, 10).reverse().map(report => ({
+      date: report.shortDate,
+      attendance: report.scanned
+    }));
+  }, [viewMode, sundayReports, eventReports]);
+
+  // ========================================
+  // EFFECTS
+  // ========================================
+  
+  useEffect(() => {
+    fetchWorkers();
+  }, []);
+  
   useEffect(() => {
     if (allWorkers.length > 0) {
       switch (viewMode) {
         case 'sunday':
           fetchSundayReports();
           break;
+        case 'events':
+          fetchEventReports();
+          break;
         case 'late':
           fetchLateWorkers();
           break;
-        case 'events':
-          fetchEvents();
-          break;
       }
     }
-  }, [viewMode, dateRange, lateDateRange, lateMinistryFilter, allWorkers]);
+  }, [viewMode, dateRange, allWorkers]);
 
-  // Export functions
-  const exportSundayReportCSV = (report) => {
-    if (!report) {
-      alert('Please select a Sunday report to export');
-      return;
-    }
-
-    const headers = ['Name', 'Ministry', 'Check-in Time', 'Status', 'Event Date'];
-    const csvRows = [headers.join(',')];
-
-    sundayDetails.forEach(record => {
-      const row = [
-        `"${record.worker_name}"`,
-        `"${record.ministry}"`,
-        `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        })}"`,
-        `"${record.status.text}"`,
-        `"${report.formattedDate}"`
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `sunday-service-${report.date}.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const exportLateWorkersCSV = () => {
-    if (lateWorkers.length === 0) {
-      alert('No late workers to export');
-      return;
-    }
-
-    const headers = ['Name', 'Ministry', 'Event Date', 'Event Title', 'Check-in Time', 'Late Reason'];
-    const csvRows = [headers.join(',')];
-
-    lateWorkers.forEach(record => {
-      const row = [
-        `"${record.worker_name}"`,
-        `"${record.ministry}"`,
-        `"${record.formattedDate}"`,
-        `"${record.event_title}"`,
-        `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })}"`,
-        `"Late arrival (after 9:00 AM)"`
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `late-workers-${lateDateRange.startDate}-to-${lateDateRange.endDate}.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const exportEventAttendanceCSV = (event) => {
-    if (!event) {
-      alert('Please select an event to export');
-      return;
-    }
-
-    const headers = ['Name', 'Ministry', 'Check-in Time', 'Scan Type', 'Event Date', 'Event Time'];
-    const csvRows = [headers.join(',')];
-
-    eventAttendance.forEach(record => {
-      const row = [
-        `"${record.worker_name}"`,
-        `"${record.ministry}"`,
-        `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })}"`,
-        `"${record.scan_type}"`,
-        `"${event.formattedDate}"`,
-        `"${event.formattedTime}"`
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const csvContent = csvRows.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `event-attendance-${event.title}-${event.event_date}.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  // Print functions
-  const printReport = (type) => {
-    const printContent = document.getElementById(`${type}-report`);
-    if (!printContent) return;
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>${type.charAt(0).toUpperCase() + type.slice(1)} Report</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            .header { text-align: center; margin-bottom: 30px; }
-            .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-            .stat-card { border: 1px solid #ddd; padding: 15px; border-radius: 5px; text-align: center; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-            th { background-color: #f4f4f4; }
-            .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
-          </style>
-        </head>
-        <body>
-          ${printContent.innerHTML}
-          <div class="footer">
-            Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}
-          </div>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
-  };
-
+  // ========================================
+  // RENDER
+  // ========================================
+  
   return (
     <SidebarLayout>
-      <div className="min-h-screen bg-gray-50 p-4 md:p-6">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-6">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-2">Attendance Reports</h1>
-          <p className="text-gray-600">
-            Detailed reports for Sunday services, late workers, and event attendance
+          <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">
+            Attendance Reports
+          </h1>
+          <p className="text-gray-600 text-lg">
+            Comprehensive analytics and insights for church attendance
           </p>
         </div>
 
         {/* View Mode Tabs */}
-        <div className="mb-6">
-          <div className="flex flex-wrap gap-2 mb-4">
+        <div className="mb-8">
+          <div className="flex flex-wrap gap-3">
             <button
               onClick={() => setViewMode('sunday')}
-              className={`cursor-pointer px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
                 viewMode === 'sunday'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white transform scale-105'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
               }`}
             >
-              <Calendar className="w-4 h-4" />
-              Sunday Service Reports
-            </button>
-            <button
-              onClick={() => setViewMode('late')}
-              className={`cursor-pointer px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                viewMode === 'late'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              <Clock className="w-4 h-4" />
-              Late Workers Reports
+              <Calendar className="w-5 h-5" />
+              Sunday Service
             </button>
             <button
               onClick={() => setViewMode('events')}
-              className={`cursor-pointer px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
                 viewMode === 'events'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white transform scale-105'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-5 h-5" />
               Event Attendance
+            </button>
+            <button
+              onClick={() => setViewMode('late')}
+              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
+                viewMode === 'late'
+                  ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white transform scale-105'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+              }`}
+            >
+              <Clock className="w-5 h-5" />
+              Late Workers
             </button>
           </div>
         </div>
 
-        {/* Sunday Service Reports */}
-        {viewMode === 'sunday' && (
-          <div className="space-y-6">
-            {/* Filter Section - Updated to Flexbox */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                <h2 className="text-lg md:text-xl font-semibold text-gray-800 flex items-center gap-2">
-                  <Calendar className="w-5 h-5" />
-                  Sunday Service Reports
-                </h2>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => printReport('sunday')}
-                    className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print
-                  </button>
-                </div>
-              </div>
-              
-              {/* Sunday Reports Filter Section */}
-<div className="flex flex-wrap items-end gap-4 mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-  
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1 ml-1">
-      Start Date
-    </label>
-    <div className="relative">
-      <input
-        type="date"
-        value={dateRange.startDate}
-        onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-        className="cursor-pointer w-44 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-      />
-    </div>
-  </div>
-
-  {/* End Date */}
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1 ml-1">
-      End Date
-    </label>
-    <input
-      type="date"
-      value={dateRange.endDate}
-      onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-      className="cursor-pointer w-44 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-    />
-  </div>
-
-  {/* Action Buttons */}
-  <div className="flex gap-2">
-    <button
-      onClick={fetchSundayReports}
-      className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center gap-2 shadow-sm whitespace-nowrap"
-    >
-      <Filter className="w-4 h-4" />
-      Generate Report
-    </button>
-
-  </div>
-</div>
+        {/* Filters Section */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 mb-8">
+          <div className="flex flex-col md:flex-row md:items-end gap-4">
+            {/* Date Range */}
+            <div className="flex-1">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={dateRange.startDate}
+                onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+              />
             </div>
-
-            {/* Reports Grid */}
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            
+            <div className="flex-1">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                End Date
+              </label>
+              <input
+                type="date"
+                value={dateRange.endDate}
+                onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+              />
+            </div>
+            
+            {/* Event Type Filter (for events view) */}
+            {viewMode === 'events' && (
+              <div className="flex-1">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Event Type
+                </label>
+                <select
+                  value={eventTypeFilter}
+                  onChange={(e) => setEventTypeFilter(e.target.value)}
+                  className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                >
+                  <option value="all">All Types</option>
+                  {Object.entries(EVENT_TYPES)
+                    .filter(([key]) => key !== 'sunday_service')
+                    .map(([key, value]) => (
+                      <option key={key} value={key}>{value.label}</option>
+                    ))
+                  }
+                </select>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {sundayReports.length === 0 ? (
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-                    <Calendar className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Sunday Service Reports</h3>
+            )}
+            
+            {/* Ministry Filter (for late workers) */}
+            {viewMode === 'late' && (
+              <div className="flex-1">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Ministry
+                </label>
+                <select
+                  value={ministryFilter}
+                  onChange={(e) => setMinistryFilter(e.target.value)}
+                  className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                >
+                  <option value="all">All Ministries</option>
+                  {ministries.map(ministry => (
+                    <option key={ministry} value={ministry}>{ministry}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {/* Search */}
+            <div className="flex-1">
+              <label className="block text-sm font-bold text-gray-700 mb-2">
+                Search
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-3 pl-10 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                />
+                <Filter className="w-5 h-5 text-gray-400 absolute left-3 top-3.5" />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="cursor-pointer absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Summary Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {viewMode === 'sunday' && (
+            <>
+              <StatCard
+                icon={Calendar}
+                label="Total Services"
+                value={summaryStats.totalEvents}
+                color="purple"
+              />
+              <StatCard
+                icon={Users}
+                label="Total Attendance"
+                value={summaryStats.totalAttendance}
+                color="blue"
+              />
+              <StatCard
+                icon={TrendingUp}
+                label="Avg. Attendance"
+                value={summaryStats.averageAttendance}
+                color="green"
+              />
+              <StatCard
+                icon={BarChart3}
+                label="Avg. Rate"
+                value={`${summaryStats.attendanceRate}%`}
+                color={summaryStats.attendanceRate >= 70 ? 'green' : summaryStats.attendanceRate >= 50 ? 'yellow' : 'red'}
+              />
+            </>
+          )}
+          
+          {viewMode === 'events' && (
+            <>
+              <StatCard
+                icon={Calendar}
+                label="Total Events"
+                value={summaryStats.totalEvents}
+                color="blue"
+              />
+              <StatCard
+                icon={Users}
+                label="Total Attendance"
+                value={summaryStats.totalAttendance}
+                color="green"
+              />
+              <StatCard
+                icon={TrendingUp}
+                label="Avg. Attendance"
+                value={summaryStats.averageAttendance}
+                color="indigo"
+              />
+              <StatCard
+                icon={BarChart3}
+                label="Avg. Rate"
+                value={`${summaryStats.attendanceRate}%`}
+                color={summaryStats.attendanceRate >= 70 ? 'green' : summaryStats.attendanceRate >= 50 ? 'yellow' : 'red'}
+              />
+            </>
+          )}
+          
+          {viewMode === 'late' && (
+            <>
+              <StatCard
+                icon={Calendar}
+                label="Services Reviewed"
+                value={summaryStats.totalEvents}
+                color="purple"
+              />
+              <StatCard
+                icon={Clock}
+                label="Late Instances"
+                value={summaryStats.totalLateInstances}
+                color="yellow"
+              />
+              <StatCard
+                icon={Users}
+                label="Unique Workers"
+                value={summaryStats.uniqueWorkers}
+                color="blue"
+              />
+              <StatCard
+                icon={TrendingUp}
+                label="Avg. Late (mins)"
+                value={summaryStats.averageLateMinutes}
+                color="red"
+              />
+            </>
+          )}
+        </div>
+
+        {/* Analytics Charts */}
+        {(viewMode === 'sunday' || viewMode === 'events') && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <SimpleBarChart
+              data={attendanceTrendData}
+              title="Attendance Trend (Last 10 Events)"
+              xKey="date"
+              yKey="attendance"
+              color="blue"
+            />
+            
+            {viewMode === 'events' && eventTypeChartData.length > 0 && (
+              <SimpleBarChart
+                data={eventTypeChartData}
+                title="Events by Type"
+                xKey="name"
+                yKey="count"
+                color="purple"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Reports Content */}
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="text-center">
+              <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+              <p className="text-gray-600 font-medium">Loading reports...</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Sunday Service & Event Reports */}
+            {(viewMode === 'sunday' || viewMode === 'events') && (
+              <div className="space-y-6">
+                {filteredReports.length === 0 ? (
+                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-12 text-center">
+                    <Calendar className="w-20 h-20 mx-auto text-gray-300 mb-4" />
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">No Reports Found</h3>
                     <p className="text-gray-600">
-                      No Sunday service reports found for the selected date range.
+                      No {viewMode === 'sunday' ? 'Sunday services' : 'events'} found for the selected criteria.
                     </p>
                   </div>
                 ) : (
-                  sundayReports.map((report) => (
+                  filteredReports.map((report) => (
                     <div
                       key={report.id}
-                      className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+                      className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-all"
                     >
                       {/* Report Header */}
-                      <div className="p-4 border-b border-gray-200">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <h3 className="text-lg font-semibold text-gray-800">
-                              {report.formattedDate}
-                            </h3>
-                            <p className="text-sm text-gray-600 mt-1">{report.eventTitle}</p>
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-gray-200">
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className="text-xl font-bold text-gray-900">
+                                {report.title}
+                              </h3>
+                              {report.type && (
+                                <span className={`px-3 py-1 text-xs font-bold rounded-full ${EVENT_TYPES[report.type]?.color}`}>
+                                  {EVENT_TYPES[report.type]?.icon} {EVENT_TYPES[report.type]?.label}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-4 h-4" />
+                                <span className="font-medium">{report.formattedDate}</span>
+                              </div>
+                              {report.startTime && (
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-4 h-4" />
+                                  <span className="font-medium">{report.startTime} - {report.endTime}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
+                          
                           <div className="flex gap-2">
                             <button
-                              onClick={() => {
-                                setSelectedSunday(report);
-                                fetchSundayDetails(report.id);
-                                setExpandedReport(expandedReport === report.id ? null : report.id);
-                              }}
-                              className="cursor-pointer flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                              onClick={() => loadAttendanceDetails(report)}
+                              className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
                             >
-                              {expandedReport === report.id ? (
-                                <>
-                                  <ChevronUp className="w-4 h-4" />
-                                  Hide Details
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="w-4 h-4" />
-                                  View Details
-                                </>
-                              )}
+                              {selectedReport?.id === report.id ? 'Hide Details' : 'View Details'}
+                              <ChevronRight className={`w-4 h-4 transition-transform ${selectedReport?.id === report.id ? 'rotate-90' : ''}`} />
                             </button>
                             <button
-                              onClick={() => exportSundayReportCSV(report)}
-                              className="cursor-pointer flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              onClick={() => exportToCSV(report, report.attendanceRecords.map(r => ({
+                                ...r,
+                                workerName: r.worker?.name || 'Unknown',
+                                ministry: r.worker?.ministry || 'N/A',
+                                status: calculateAttendanceStatus(r.check_in_time, report.startTime, report.type || 'sunday_service')
+                              })))}
+                              className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
                             >
                               <Download className="w-4 h-4" />
-                              Export CSV
+                              Export
                             </button>
                           </div>
                         </div>
                         
                         {/* Summary Stats */}
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Total Workers</p>
-                            <p className="text-2xl font-bold text-blue-600">{report.totalWorkers}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-600 font-semibold mb-1">Total</p>
+                            <p className="text-2xl font-extrabold text-blue-600">{report.totalWorkers}</p>
                           </div>
-                          <div className="bg-green-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Present</p>
-                            <p className="text-2xl font-bold text-green-600">{report.present}</p>
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-600 font-semibold mb-1">Present</p>
+                            <p className="text-2xl font-extrabold text-green-600">{report.present}</p>
                           </div>
-                          <div className="bg-yellow-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Late</p>
-                            <p className="text-2xl font-bold text-yellow-600">{report.late}</p>
-                          </div>
-                          <div className="bg-red-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Absent</p>
-                            <p className="text-2xl font-bold text-red-600">{report.absent}</p>
-                          </div>
-                          <div className={`p-3 rounded-lg ${
-                            report.attendanceRate >= 70 ? 'bg-green-50' :
-                            report.attendanceRate >= 50 ? 'bg-yellow-50' : 'bg-red-50'
-                          }`}>
-                            <p className="text-sm text-gray-600">Attendance Rate</p>
-                            <p className={`text-2xl font-bold ${
+                          {viewMode === 'sunday' && (
+                            <>
+                              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <p className="text-xs text-gray-600 font-semibold mb-1">Late</p>
+                                <p className="text-2xl font-extrabold text-yellow-600">{report.late}</p>
+                              </div>
+                              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <p className="text-xs text-gray-600 font-semibold mb-1">Absent</p>
+                                <p className="text-2xl font-extrabold text-red-600">{report.absent}</p>
+                              </div>
+                            </>
+                          )}
+                          {viewMode === 'events' && (
+                            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                              <p className="text-xs text-gray-600 font-semibold mb-1">Pending</p>
+                              <p className="text-2xl font-extrabold text-yellow-600">{report.pending}</p>
+                            </div>
+                          )}
+                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <p className="text-xs text-gray-600 font-semibold mb-1">Rate</p>
+                            <p className={`text-2xl font-extrabold ${
                               report.attendanceRate >= 70 ? 'text-green-600' :
                               report.attendanceRate >= 50 ? 'text-yellow-600' : 'text-red-600'
                             }`}>
@@ -729,56 +1122,66 @@ export default function Reports() {
                         </div>
                       </div>
 
-                      {/* Expanded Details */}
-                      {expandedReport === report.id && (
-                        <div id="sunday-report" className="p-4 border-t border-gray-200">
-                          <div className="mb-6">
-                            <h4 className="font-semibold text-gray-800 mb-4">Attendance Details</h4>
-                            <div className="overflow-x-auto">
+                      {/* Attendance Details */}
+                      {selectedReport?.id === report.id && (
+                        <div className="p-6">
+                          <h4 className="text-lg font-bold text-gray-900 mb-4">
+                            Attendance Records ({attendanceDetails.length})
+                          </h4>
+                          
+                          {attendanceDetails.length === 0 ? (
+                            <div className="text-center py-8 text-gray-500">
+                              <AlertCircle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                              <p className="font-medium">No attendance records</p>
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto rounded-xl border border-gray-200">
                               <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
+                                <thead className="bg-gray-100">
                                   <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                       Name
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                       Ministry
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                       Check-in Time
                                     </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                      Scan Type
+                                    </th>
+                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                       Status
                                     </th>
                                   </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                  {sundayDetails.map((record, index) => (
-                                    <tr key={index} className="hover:bg-gray-50">
-                                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        {record.worker_name}
+                                  {attendanceDetails.map((record, index) => (
+                                    <tr key={index} className="hover:bg-blue-50 transition-colors">
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                                        {record.workerName}
                                       </td>
-                                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
                                         {record.ministry}
                                       </td>
-                                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                        {record.check_in_time
-                                          ? new Date(record.check_in_time).toLocaleTimeString('en-US', {
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                              second: '2-digit'
-                                            })
-                                          : 'N/A'}
+                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                                        {new Date(record.check_in_time).toLocaleTimeString('en-US', {
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        })}
                                       </td>
-                                      <td className="px-4 py-3 whitespace-nowrap">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                          record.status.status === 'present'
-                                            ? 'bg-green-100 text-green-800'
-                                            : record.status.status === 'late'
-                                            ? 'bg-yellow-100 text-yellow-800'
-                                            : 'bg-red-100 text-red-800'
+                                      <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${
+                                          record.scan_type === 'qr' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                          'bg-purple-100 text-purple-800 border border-purple-200'
                                         }`}>
-                                          {record.status.text}
+                                          {(record.scan_type || 'qr').toUpperCase()}
+                                        </span>
+                                      </td>
+                                      <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-3 py-1.5 text-xs font-bold rounded-full border-2 ${getStatusBadge(record.status.status)}`}>
+                                          {record.status.label.toUpperCase()}
                                         </span>
                                       </td>
                                     </tr>
@@ -786,7 +1189,7 @@ export default function Reports() {
                                 </tbody>
                               </table>
                             </div>
-                          </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -794,443 +1197,94 @@ export default function Reports() {
                 )}
               </div>
             )}
-          </div>
-        )}
-
-        {/* Late Workers Reports */}
-        {viewMode === 'late' && (
-          <div className="space-y-6">
-            {/* Filter Section - Updated to Flexbox */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                <h2 className="text-lg md:text-xl font-semibold text-gray-800 flex items-center gap-2">
-                  <Clock className="w-5 h-5" />
-                  Late Workers Reports
-                </h2>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => printReport('late')}
-                    className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print
-                  </button>
-                  {lateWorkers.length > 0 && (
-                    <button
-                      onClick={exportLateWorkersCSV}
-                      className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export CSV
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-{/* Main Container: Tight Flexbox layout */}
-<div className="flex flex-wrap items-end gap-4 mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-  
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Start Date
-    </label>
-    <input
-      type="date"
-      value={lateDateRange.startDate}
-      onChange={(e) => setLateDateRange({ ...lateDateRange, startDate: e.target.value })}
-      className="cursor-pointer w-44 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-all"
-    />
-  </div>
-
-  {/* End Date */}
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      End Date
-    </label>
-    <input
-      type="date"
-      value={lateDateRange.endDate}
-      onChange={(e) => setLateDateRange({ ...lateDateRange, endDate: e.target.value })}
-      className="cursor-pointer w-44 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-all"
-    />
-  </div>
-
-  {/* Ministry Filter */}
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1">
-      Ministry
-    </label>
-    <select
-      value={lateMinistryFilter}
-      onChange={(e) => setLateMinistryFilter(e.target.value)}
-      className="cursor-pointer w-48 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 focus:bg-white transition-all"
-    >
-      <option value="all">All Ministries</option>
-      {lateMinistries.map((ministry, index) => (
-        <option key={index} value={ministry}>
-          {ministry}
-        </option>
-      ))}
-    </select>
-  </div>
-
-  {/* Action Buttons: Grouped Together */}
-  <div className="flex gap-2">
-    <button
-      onClick={fetchLateWorkers}
-      className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center gap-2 shadow-sm"
-    >
-      <Filter className="w-4 h-4" />
-      Generate Report
-    </button>
-
-  </div>
-</div>
-            </div>
 
             {/* Late Workers Report */}
-            {lateLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-              </div>
-            ) : (
-              <div id="late-report" className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-200 bg-gray-50">
-                  <h3 className="font-semibold text-gray-800">
-                    Late Workers ({lateWorkers.length})
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Showing workers who arrived after 9:00 AM
-                  </p>
+            {viewMode === 'late' && (
+              <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+                <div className="bg-gradient-to-r from-orange-50 to-red-50 p-6 border-b border-gray-200">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        Late Workers Report
+                      </h3>
+                      <p className="text-sm text-gray-600 font-medium">
+                        Workers who arrived after 9:00 AM ({filteredLateWorkers.length} records)
+                      </p>
+                    </div>
+                    {filteredLateWorkers.length > 0 && (
+                      <ExportButton onClick={exportLateWorkersCSV} loading={exporting} />
+                    )}
+                  </div>
                 </div>
                 
-                {lateWorkers.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Clock className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Late Workers</h3>
+                {filteredLateWorkers.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <Clock className="w-20 h-20 mx-auto text-gray-300 mb-4" />
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">No Late Workers</h3>
                     <p className="text-gray-600">
-                      No late workers found for the selected criteria.
+                      No late arrivals found for the selected criteria.
                     </p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-100">
                         <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Name
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Ministry
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Event Date
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Event Title
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Check-in Time
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                             Minutes Late
                           </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {lateWorkers.map((worker, index) => {
-                          const checkInTime = new Date(worker.check_in_time);
-                          const hours = checkInTime.getHours();
-                          const minutes = checkInTime.getMinutes();
-                          const totalMinutes = (hours * 60) + minutes;
-                          const minutesLate = Math.max(0, totalMinutes - (9 * 60));
-                          
-                          return (
-                            <tr key={index} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                {worker.worker_name}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                {worker.ministry}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                {worker.formattedDate}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                {worker.event_title}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                {new Date(worker.check_in_time).toLocaleTimeString('en-US', {
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </td>
-                              <td className="px-4 py-3 whitespace-nowrap">
-                                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                                  {minutesLate} mins late
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {filteredLateWorkers.map((worker, index) => (
+                          <tr key={index} className="hover:bg-orange-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                              {worker.workerName}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                              {worker.ministry}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                              {worker.formattedDate}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                              {worker.eventTitle}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                              {new Date(worker.checkInTime).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="px-3 py-1.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 border-2 border-yellow-200">
+                                {worker.minutesLate} MINS LATE
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                 )}
               </div>
             )}
-          </div>
-        )}
-
-        {/* Event Attendance Reports */}
-        {viewMode === 'events' && (
-          <div className="space-y-6">
-            {/* Filter Section - Updated to Flexbox */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                <h2 className="text-lg md:text-xl font-semibold text-gray-800 flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Event Attendance Reports
-                </h2>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => printReport('events')}
-                    className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                  >
-                    <Printer className="w-4 h-4" />
-                    Print
-                  </button>
-                </div>
-              </div>
-              
-              {/* Flexbox container for filter controls */}
-             {/* Event Attendance Filter Section */}
-<div className="flex flex-wrap items-end gap-4 mb-6 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-  
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1 ml-1">
-      Start Date
-    </label>
-    <input
-      type="date"
-      value={dateRange.startDate}
-      onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-      className="cursor-pointer w-44 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-    />
-  </div>
-
-  {/* End Date */}
-  <div className="flex flex-col">
-    <label className="block text-sm font-medium text-gray-700 mb-1 ml-1">
-      End Date
-    </label>
-    <input
-      type="date"
-      value={dateRange.endDate}
-      onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-      className="cursor-pointer w-44 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-    />
-  </div>
-
-  {/* Action Buttons */}
-  <div className="flex gap-2">
-    <button
-      onClick={fetchEvents}
-      className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center gap-2 shadow-sm whitespace-nowrap"
-    >
-      <Filter className="w-4 h-4" />
-      Generate Report
-    </button>
-
-  </div>
-</div>
-            </div>
-
-            {/* Events Grid */}
-            {eventLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {events.length === 0 ? (
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
-                    <Users className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Events Found</h3>
-                    <p className="text-gray-600">
-                      No approved events found for the selected date range.
-                    </p>
-                  </div>
-                ) : (
-                  events.map((event) => (
-                    <div
-                      key={event.id}
-                      className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-                    >
-                      {/* Event Header */}
-                      <div className="p-4 border-b border-gray-200">
-                        <div className="flex justify-between items-center">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-semibold text-gray-800">
-                              {event.title}
-                            </h3>
-                            <div className="flex flex-wrap gap-4 mt-2">
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <Calendar className="w-4 h-4" />
-                                <span className="text-sm">{event.formattedDate}</span>
-                              </div>
-                              <div className="flex items-center gap-2 text-gray-600">
-                                <Clock className="w-4 h-4" />
-                                <span className="text-sm">{event.formattedTime}</span>
-                              </div>
-                              {event.place && (
-                                <div className="flex items-center gap-2 text-gray-600">
-                                  <span className="text-sm">📍 {event.place}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                setSelectedEvent(event);
-                                fetchEventAttendance(event.id);
-                                setExpandedReport(expandedReport === event.id ? null : event.id);
-                              }}
-                              className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              {expandedReport === event.id ? (
-                                <>
-                                  <ChevronUp className="w-4 h-4" />
-                                  Hide Attendance
-                                </>
-                              ) : (
-                                <>
-                                  <ChevronDown className="w-4 h-4" />
-                                  View Attendance
-                                </>
-                              )}
-                            </button>
-                            <button
-                              onClick={() => exportEventAttendanceCSV(event)}
-                              className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                            >
-                              <Download className="w-4 h-4" />
-                              Export CSV
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {/* Event Summary */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                          <div className="bg-blue-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Total Workers</p>
-                            <p className="text-2xl font-bold text-blue-600">{event.scanned + event.pending}</p>
-                          </div>
-                          <div className="bg-green-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Checked In</p>
-                            <p className="text-2xl font-bold text-green-600">{event.scanned}</p>
-                          </div>
-                          <div className="bg-yellow-50 p-3 rounded-lg">
-                            <p className="text-sm text-gray-600">Pending</p>
-                            <p className="text-2xl font-bold text-yellow-600">{event.pending}</p>
-                          </div>
-                          <div className={`p-3 rounded-lg ${
-                            event.rate >= 70 ? 'bg-green-50' :
-                            event.rate >= 50 ? 'bg-yellow-50' : 'bg-red-50'
-                          }`}>
-                            <p className="text-sm text-gray-600">Attendance Rate</p>
-                            <p className={`text-2xl font-bold ${
-                              event.rate >= 70 ? 'text-green-600' :
-                              event.rate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                            }`}>
-                              {event.rate}%
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expanded Attendance Details */}
-                      {expandedReport === event.id && (
-                        <div id="events-report" className="p-4 border-t border-gray-200">
-                          <div className="mb-6">
-                            <h4 className="font-semibold text-gray-800 mb-4">Attendance Details</h4>
-                            <div className="overflow-x-auto">
-                              <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                  <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                      Name
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                      Ministry
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                      Check-in Time
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                      Scan Type
-                                    </th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                      Status
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                  {eventAttendance.map((record, index) => {
-                                    const status = getAttendanceStatus(record.check_in_time);
-                                    return (
-                                      <tr key={index} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                          {record.worker_name}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                          {record.ministry}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                          {record.check_in_time
-                                            ? new Date(record.check_in_time).toLocaleTimeString('en-US', {
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                                second: '2-digit'
-                                              })
-                                            : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                            record.scan_type === 'qr' ? 'bg-blue-100 text-blue-800' :
-                                            record.scan_type === 'manual' ? 'bg-green-100 text-green-800' :
-                                            'bg-gray-100 text-gray-800'
-                                          }`}>
-                                            {record.scan_type}
-                                          </span>
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                            status.status === 'present'
-                                              ? 'bg-green-100 text-green-800'
-                                              : status.status === 'late'
-                                              ? 'bg-yellow-100 text-yellow-800'
-                                              : 'bg-red-100 text-red-800'
-                                          }`}>
-                                            {status.text}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+          </>
         )}
       </div>
     </SidebarLayout>

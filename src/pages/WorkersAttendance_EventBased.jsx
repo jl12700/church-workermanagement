@@ -36,6 +36,9 @@ export default function WorkersAttendance() {
     }
   };
 
+  // =========================================================================
+  // UPDATED: Fetch worker attendance using database-computed status
+  // =========================================================================
   const fetchWorkerMonthlyAttendance = async (workerId, month) => {
     try {
       const year = month.getFullYear();
@@ -57,7 +60,7 @@ export default function WorkersAttendance() {
       
       if (eventsError) throw eventsError;
       
-      // Get attendance for this worker in this month
+      // UPDATED: Use attendance_status_view which now includes database-computed status
       const { data: attendance, error: attendanceError } = await supabase
         .from('attendance_status_view')
         .select('*')
@@ -77,14 +80,11 @@ export default function WorkersAttendance() {
         }
       });
       
-      // Add attendance records
+      // UPDATED: Use status directly from database (already computed)
       attendance?.forEach(record => {
         if (!attendanceMap[record.event_date]) {
           attendanceMap[record.event_date] = [];
         }
-        
-        // Calculate status for each attendance record
-        const status = getAttendanceStatus(record.check_in_time);
         
         attendanceMap[record.event_date].push({
           eventTitle: record.event_title,
@@ -92,7 +92,7 @@ export default function WorkersAttendance() {
           checkInTime: record.check_in_time,
           startTime: record.start_time,
           endTime: record.end_time,
-          status: status.status
+          status: record.status // Database-computed status
         });
       });
       
@@ -131,31 +131,10 @@ export default function WorkersAttendance() {
     return matchesSearch && matchesMinistry;
   });
 
-  // Helper function to determine attendance status based on time
-  const getAttendanceStatus = (timeString) => {
-    if (!timeString) return { status: 'absent', text: 'Absent' };
-    
-    const time = new Date(timeString);
-    const hours = time.getHours();
-    const minutes = time.getMinutes();
-    const totalMinutes = (hours * 60) + minutes;
-    
-    const absentThreshold = (9 * 60) + 15; // 9:15 AM (555 minutes)
-    const lateThreshold = 9 * 60; // 9:00 AM (540 minutes)
-    
-    // Absent: 9:15 AM (555) and after, or no check-in
-    if (totalMinutes >= absentThreshold) {
-      return { status: 'absent', text: 'Absent' };
-    }
-    
-    // Late: 9:00 AM (540) to 9:14 AM (554)
-    if (totalMinutes >= lateThreshold && totalMinutes < absentThreshold) {
-      return { status: 'late', text: 'Late' };
-    }
-    
-    // Present: before 9:00 AM (< 540)
-    return { status: 'present', text: 'Present' };
-  };
+  // =========================================================================
+  // REMOVED: Frontend status calculation - now using database-computed status
+  // The database trigger handles this automatically via calculate_attendance_status()
+  // =========================================================================
 
   // Get Sundays in a month
   const getSundaysInMonth = (month) => {
@@ -192,6 +171,7 @@ export default function WorkersAttendance() {
   };
 
   // Function to determine attendance status for a specific date
+  // UPDATED: Now just retrieves the database-computed status
   const determineAttendanceStatus = (date) => {
     const dateStr = date.toISOString().split('T')[0];
     const today = new Date();
@@ -218,7 +198,7 @@ export default function WorkersAttendance() {
       return null; // Not a Sunday
     }
     
-    // For this view, we'll take the status from the first event of the day
+    // UPDATED: Use the database-computed status from the first event
     const firstEvent = monthlyAttendance[dateStr][0];
     return firstEvent.status;
   };
@@ -345,7 +325,7 @@ export default function WorkersAttendance() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Worker Attendance Logs</h1>
           <p className="text-sm text-gray-500 mt-1">
-            View attendance history for all workers across all events
+            View attendance history for all workers across all events (synced with event attendance)
           </p>
         </div>
 
@@ -623,9 +603,9 @@ export default function WorkersAttendance() {
                     />
                   </div>
 
-                  {/* Legend - UPDATED with new rules */}
+                  {/* Legend */}
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Legend (**for Sunday Service only):</h4>
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Legend (for Sunday Service only):</h4>
                     <div className="flex flex-wrap gap-4">
                       <div className="flex items-center">
                         <div className="h-4 w-4 rounded-full bg-green-500 mr-2"></div>
@@ -633,11 +613,11 @@ export default function WorkersAttendance() {
                       </div>
                       <div className="flex items-center">
                         <div className="h-4 w-4 rounded-full bg-yellow-500 mr-2"></div>
-                        <span className="text-sm text-gray-600">Late (9:00 AM onwards)</span>
+                        <span className="text-sm text-gray-600">Late (9:00 AM - 9:14 AM)</span>
                       </div>
                       <div className="flex items-center">
                         <div className="h-4 w-4 rounded-full bg-red-500 mr-2"></div>
-                        <span className="text-sm text-gray-600">Absent (No scan by 9:15 AM)</span>
+                        <span className="text-sm text-gray-600">Absent (9:15 AM or later)</span>
                       </div>
                       <div className="flex items-center">
                         <div className="h-4 w-4 rounded-full bg-gray-300 mr-2"></div>
