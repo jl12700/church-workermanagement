@@ -162,9 +162,7 @@ export default function Workers() {
     if (/\d/.test(formData.first_name)) errors.first_name = 'First name cannot contain numbers';
     if (/\d/.test(formData.last_name)) errors.last_name = 'Last name cannot contain numbers';
     
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = 'Invalid email format';
-    }
+    // Email validation removed - can be any value
     
     if (formData.date_of_birth) {
       const dob = new Date(formData.date_of_birth);
@@ -225,6 +223,17 @@ export default function Workers() {
     if (formErrors[name]) {
       setFormErrors(prev => ({ ...prev, [name]: '' }));
     }
+  };
+
+  const setEmailToNA = () => {
+    setFormData(prev => ({ ...prev, email: 'N/A' }));
+    if (formErrors.email) {
+      setFormErrors(prev => ({ ...prev, email: '' }));
+    }
+  };
+
+  const setEditEmailToNA = () => {
+    setEditData(prev => ({ ...prev, email: 'N/A' }));
   };
 
   const handleEditFormChange = (e) => {
@@ -597,7 +606,6 @@ export default function Workers() {
     setShowEditModal(true);
   };
 
-  
   const handleProfilePhotoSelect = () => {
     document.getElementById('profile-photo-input').click();
   };
@@ -606,7 +614,6 @@ export default function Workers() {
     document.getElementById('policy-pdf-input').click();
   };
 
-  
   const handleEditProfilePhotoSelect = () => {
     document.getElementById('edit-profile-photo-input').click();
   };
@@ -733,7 +740,13 @@ export default function Workers() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
                             <div className="text-sm font-medium text-gray-900">{worker.name}</div>
-                            <div className="text-xs text-gray-500">{worker.email}</div>
+                            <div className="text-xs text-gray-500">
+                              {worker.email === 'N/A' || !worker.email ? (
+                                <span className="italic text-gray-400">N/A</span>
+                              ) : (
+                                worker.email
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{worker.ministry}</td>
@@ -817,603 +830,590 @@ export default function Workers() {
           )}
         </div>
 
-{showAddModal && (
-  <Modal onClose={() => {
-    setShowAddModal(false);
-    setProfilePreview(null);
-    setPolicyFileName('');
-  }} title="Add New Worker" size="xlarge">
-    <div className="space-y-6">
-
-      <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Personal Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
-            <input
-              type="text"
-              name="first_name"
-              value={formData.first_name}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.first_name ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.first_name && <p className="text-red-500 text-xs mt-1">{formErrors.first_name}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
-            <input
-              type="text"
-              name="last_name"
-              value={formData.last_name}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.last_name ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.last_name && <p className="text-red-500 text-xs mt-1">{formErrors.last_name}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
-            <select
-              name="gender"
-              value={formData.gender}
-              onChange={handleFormChange}
-              className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Prefer not to say">--Choose Gender--</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
-            <input
-              type="date"
-              name="date_of_birth"
-              value={formData.date_of_birth}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.date_of_birth ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.date_of_birth && <p className="text-red-500 text-xs mt-1">{formErrors.date_of_birth}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Civil Status</label>
-            <select
-              name="civil_status"
-              value={formData.civil_status}
-              onChange={handleFormChange}
-              className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Single">Single</option>
-              <option value="Married">Married</option>
-              <option value="Widowed">Widowed</option>
-              <option value="Separated">Separated</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      
-      <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Contact Information</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Present Address</label>
-            <textarea
-              name="present_address"
-              value={formData.present_address}
-              onChange={handleFormChange}
-              rows="3"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.email ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number *</label>
-            <input
-              type="text"
-              name="contact"
-              value={formData.contact}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.contact ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.contact && <p className="text-red-500 text-xs mt-1">{formErrors.contact}</p>}
-          </div>
-        </div>
-      </div>
-
-      
-      <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Professional Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Educational Background</label>
-            <textarea
-              name="educational_background"
-              value={formData.educational_background}
-              onChange={handleFormChange}
-              rows="2"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
-            <input
-              type="text"
-              name="occupation"
-              value={formData.occupation}
-              onChange={handleFormChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Ministry *</label>
-            <select
-              name="ministry"
-              value={formData.ministry}
-              onChange={handleFormChange}
-              className={`cursor-pointer w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.ministry ? 'border-red-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Select Ministry</option>
-              {MINISTRIES.map(ministry => (
-                <option key={ministry} value={ministry}>{ministry}</option>
-              ))}
-            </select>
-            {formErrors.ministry && <p className="text-red-500 text-xs mt-1">{formErrors.ministry}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date Started Ministry</label>
-            <input
-              type="date"
-              name="date_started_ministry"
-              value={formData.date_started_ministry}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.date_started_ministry ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.date_started_ministry && <p className="text-red-500 text-xs mt-1">{formErrors.date_started_ministry}</p>}
-          </div>
-        </div>
-      </div>
-
-  
-      <div className="border-b pb-4">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Ministry Information</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date of Baptism</label>
-            <input
-              type="date"
-              name="date_of_baptism"
-              value={formData.date_of_baptism}
-              onChange={handleFormChange}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                formErrors.date_of_baptism ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.date_of_baptism && <p className="text-red-500 text-xs mt-1">{formErrors.date_of_baptism}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-            <select
-              name="status"
-              value={formData.status}
-              onChange={handleFormChange}
-              className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-              <option value="Suspended">Suspended</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      
-      <div className="pb-4">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3">Attachments</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
-            <div className="flex flex-col items-center">
-              {profilePreview ? (
-                <div className="mb-3">
-                  <img 
-                    src={profilePreview} 
-                    alt="Profile preview" 
-                    className="w-32 h-32 rounded-full object-cover border-2 border-gray-300"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleProfilePhotoSelect}
-                    className="mt-2 cursor-pointer px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                  >
-                    Reupload Photo
-                  </button>
-                </div>
-              ) : (
-                <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center mb-3">
-                  <span className="text-gray-500">No photo</span>
-                </div>
-              )}
-              
-              <input
-                id="profile-photo-input"
-                type="file"
-                name="profile_photo"
-                accept="image/jpeg,image/jpg,image/png"
-                onChange={handleFormChange}
-                className="hidden"
-              />
-              
-              {!profilePreview && (
-                <button
-                  type="button"
-                  onClick={handleProfilePhotoSelect}
-                  className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Upload Photo
-                </button>
-              )}
-              
-              <p className="text-xs text-gray-500 mt-1">JPG, PNG max 2MB</p>
-              {formErrors.profile_photo && (
-                <p className="text-red-500 text-xs mt-1">{formErrors.profile_photo}</p>
-              )}
-              {uploadProgress.profile > 0 && (
-                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
-                  <div 
-                    className="bg-blue-600 h-2.5 rounded-full" 
-                    style={{ width: `${uploadProgress.profile}%` }}
-                  ></div>
-                  <p className="text-xs text-gray-600 mt-1">{uploadProgress.profile}% uploaded</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Signed Ministry Policy</label>
-            <div className="flex flex-col items-center border-2 border-dashed border-gray-300 rounded-lg p-4">
-              {policyFileName ? (
-                <div className="text-center">
-                  <svg className="w-12 h-12 text-red-500 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-                  </svg>
-                  <p className="text-sm font-medium text-gray-700">{policyFileName}</p>
-                  <button
-                    type="button"
-                    onClick={handlePolicyPDFSelect}
-                    className="mt-2 cursor-pointer px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                  >
-                    Reupload PDF
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-sm text-gray-600 mb-2">Upload PDF file</p>
-                  <button
-                    type="button"
-                    onClick={handlePolicyPDFSelect}
-                    className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                  >
-                    Upload PDF File
-                  </button>
-                </div>
-              )}
-              
-              <input
-                id="policy-pdf-input"
-                type="file"
-                name="policy_pdf"
-                accept="application/pdf"
-                onChange={handleFormChange}
-                className="hidden"
-              />
-              
-              <p className="text-xs text-gray-500 mt-2">PDF max 5MB</p>
-              {formErrors.policy_pdf && (
-                <p className="text-red-500 text-xs mt-1">{formErrors.policy_pdf}</p>
-              )}
-              {uploadProgress.policy > 0 && (
-                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
-                  <div 
-                    className="bg-green-600 h-2.5 rounded-full" 
-                    style={{ width: `${uploadProgress.policy}%` }}
-                  ></div>
-                  <p className="text-xs text-gray-600 mt-1">{uploadProgress.policy}% uploaded</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-3 pt-4">
-        <button
-          onClick={() => {
+        {showAddModal && (
+          <Modal onClose={() => {
             setShowAddModal(false);
             setProfilePreview(null);
             setPolicyFileName('');
-          }}
-          className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleAddWorkerClick}
-          disabled={processing || fileUploading}
-          className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {processing ? 'Saving...' : fileUploading ? 'Uploading...' : 'Add Worker'}
-        </button>
-      </div>
-    </div>
-  </Modal>
-)}
+          }} title="Add New Worker" size="xlarge">
+            <div className="space-y-6">
+              <div className="border-b pb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Personal Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                    <input
+                      type="text"
+                      name="first_name"
+                      value={formData.first_name}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.first_name ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.first_name && <p className="text-red-500 text-xs mt-1">{formErrors.first_name}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                    <input
+                      type="text"
+                      name="last_name"
+                      value={formData.last_name}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.last_name ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.last_name && <p className="text-red-500 text-xs mt-1">{formErrors.last_name}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                    <select
+                      name="gender"
+                      value={formData.gender}
+                      onChange={handleFormChange}
+                      className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Prefer not to say">--Choose Gender--</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      name="date_of_birth"
+                      value={formData.date_of_birth}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.date_of_birth ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.date_of_birth && <p className="text-red-500 text-xs mt-1">{formErrors.date_of_birth}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Civil Status</label>
+                    <select
+                      name="civil_status"
+                      value={formData.civil_status}
+                      onChange={handleFormChange}
+                      className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Single">Single</option>
+                      <option value="Married">Married</option>
+                      <option value="Widowed">Widowed</option>
+                      <option value="Separated">Separated</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b pb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Contact Information</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Present Address</label>
+                    <textarea
+                      name="present_address"
+                      value={formData.present_address}
+                      onChange={handleFormChange}
+                      rows="3"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleFormChange}
+                        placeholder="Enter email or N/A"
+                        className={`flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          formErrors.email ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                      />
+<button
+                        type="button"
+                        onClick={setEmailToNA}
+                        className="cursor-pointer px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 transition-all shadow-sm whitespace-nowrap"
+                      >
+                        Set as N/A
+                      </button>
+                    </div>
+                    {formErrors.email && <p className="text-red-500 text-xs mt-1">{formErrors.email}</p>}
+                    <p className="text-xs text-gray-500 mt-1">Note: Click "N/A" if worker has no email</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number *</label>
+                    <input
+                      type="text"
+                      name="contact"
+                      value={formData.contact}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.contact ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.contact && <p className="text-red-500 text-xs mt-1">{formErrors.contact}</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b pb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Professional Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Educational Background</label>
+                    <textarea
+                      name="educational_background"
+                      value={formData.educational_background}
+                      onChange={handleFormChange}
+                      rows="2"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
+                    <input
+                      type="text"
+                      name="occupation"
+                      value={formData.occupation}
+                      onChange={handleFormChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Ministry *</label>
+                    <select
+                      name="ministry"
+                      value={formData.ministry}
+                      onChange={handleFormChange}
+                      className={`cursor-pointer w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.ministry ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    >
+                      <option value="">Select Ministry</option>
+                      {MINISTRIES.map(ministry => (
+                        <option key={ministry} value={ministry}>{ministry}</option>
+                      ))}
+                    </select>
+                    {formErrors.ministry && <p className="text-red-500 text-xs mt-1">{formErrors.ministry}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Started Ministry</label>
+                    <input
+                      type="date"
+                      name="date_started_ministry"
+                      value={formData.date_started_ministry}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.date_started_ministry ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.date_started_ministry && <p className="text-red-500 text-xs mt-1">{formErrors.date_started_ministry}</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b pb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Ministry Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date of Baptism</label>
+                    <input
+                      type="date"
+                      name="date_of_baptism"
+                      value={formData.date_of_baptism}
+                      onChange={handleFormChange}
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        formErrors.date_of_baptism ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {formErrors.date_of_baptism && <p className="text-red-500 text-xs mt-1">{formErrors.date_of_baptism}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select
+                      name="status"
+                      value={formData.status}
+                      onChange={handleFormChange}
+                      className="cursor-pointer w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                      <option value="Suspended">Suspended</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pb-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Attachments</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
+                    <div className="flex flex-col items-center">
+                      {profilePreview ? (
+                        <div className="mb-3">
+                          <img 
+                            src={profilePreview} 
+                            alt="Profile preview" 
+                            className="w-32 h-32 rounded-full object-cover border-2 border-gray-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleProfilePhotoSelect}
+                            className="mt-2 cursor-pointer px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                          >
+                            Reupload Photo
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center mb-3">
+                          <span className="text-gray-500">No photo</span>
+                        </div>
+                      )}
+                      
+                      <input
+                        id="profile-photo-input"
+                        type="file"
+                        name="profile_photo"
+                        accept="image/jpeg,image/jpg,image/png"
+                        onChange={handleFormChange}
+                        className="hidden"
+                      />
+                      
+                      {!profilePreview && (
+                        <button
+                          type="button"
+                          onClick={handleProfilePhotoSelect}
+                          className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                          Upload Photo
+                        </button>
+                      )}
+                      
+                      <p className="text-xs text-gray-500 mt-1">JPG, PNG max 2MB</p>
+                      {formErrors.profile_photo && (
+                        <p className="text-red-500 text-xs mt-1">{formErrors.profile_photo}</p>
+                      )}
+                      {uploadProgress.profile > 0 && (
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                          <div 
+                            className="bg-blue-600 h-2.5 rounded-full" 
+                            style={{ width: `${uploadProgress.profile}%` }}
+                          ></div>
+                          <p className="text-xs text-gray-600 mt-1">{uploadProgress.profile}% uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Signed Ministry Policy</label>
+                    <div className="flex flex-col items-center border-2 border-dashed border-gray-300 rounded-lg p-4">
+                      {policyFileName ? (
+                        <div className="text-center">
+                          <svg className="w-12 h-12 text-red-500 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                          </svg>
+                          <p className="text-sm font-medium text-gray-700">{policyFileName}</p>
+                          <button
+                            type="button"
+                            onClick={handlePolicyPDFSelect}
+                            className="mt-2 cursor-pointer px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                          >
+                            Reupload PDF
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <p className="text-sm text-gray-600 mb-2">Upload PDF file</p>
+                          <button
+                            type="button"
+                            onClick={handlePolicyPDFSelect}
+                            className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                          >
+                            Upload PDF File
+                          </button>
+                        </div>
+                      )}
+                      
+                      <input
+                        id="policy-pdf-input"
+                        type="file"
+                        name="policy_pdf"
+                        accept="application/pdf"
+                        onChange={handleFormChange}
+                        className="hidden"
+                      />
+                      
+                      <p className="text-xs text-gray-500 mt-2">PDF max 5MB</p>
+                      {formErrors.policy_pdf && (
+                        <p className="text-red-500 text-xs mt-1">{formErrors.policy_pdf}</p>
+                      )}
+                      {uploadProgress.policy > 0 && (
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                          <div 
+                            className="bg-green-600 h-2.5 rounded-full" 
+                            style={{ width: `${uploadProgress.policy}%` }}
+                          ></div>
+                          <p className="text-xs text-gray-600 mt-1">{uploadProgress.policy}% uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setProfilePreview(null);
+                    setPolicyFileName('');
+                  }}
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddWorkerClick}
+                  disabled={processing || fileUploading}
+                  className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {processing ? 'Saving...' : fileUploading ? 'Uploading...' : 'Add Worker'}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
         {showConfirmModal && (
-  <Modal onClose={() => setShowConfirmModal(false)} title="Confirm Worker Details" size="medium">
-    <div className="space-y-4">
-      <p className="text-gray-700 font-medium">Please confirm the following worker details:</p>
-      
-      <div className="space-y-4">
-       
-        <div className="border rounded-lg p-4 bg-gray-50">
-          <h4 className="font-semibold text-gray-800 mb-2">Personal Information</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-gray-600">First Name:</span>
-              <p className="font-medium">{formData.first_name}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Last Name:</span>
-              <p className="font-medium">{formData.last_name}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Gender:</span>
-              <p className="font-medium">{formData.gender}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Date of Birth:</span>
-              <p className="font-medium">{formData.date_of_birth || 'Not specified'}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Civil Status:</span>
-              <p className="font-medium">{formData.civil_status}</p>
-            </div>
-          </div>
-        </div>
+          <Modal onClose={() => setShowConfirmModal(false)} title="Confirm Worker Details" size="medium">
+            <div className="space-y-4">
+              <p className="text-gray-700 font-medium">Please confirm the following worker details:</p>
+              
+              <div className="space-y-4">
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <h4 className="font-semibold text-gray-800 mb-2">Personal Information</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">First Name:</span>
+                      <p className="font-medium">{formData.first_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Last Name:</span>
+                      <p className="font-medium">{formData.last_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Gender:</span>
+                      <p className="font-medium">{formData.gender}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Date of Birth:</span>
+                      <p className="font-medium">{formData.date_of_birth || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Civil Status:</span>
+                      <p className="font-medium">{formData.civil_status}</p>
+                    </div>
+                  </div>
+                </div>
 
-        
-        <div className="border rounded-lg p-4 bg-gray-50">
-          <h4 className="font-semibold text-gray-800 mb-2">Contact Information</h4>
-          <div className="space-y-1 text-sm">
-            <div>
-              <span className="text-gray-600">Present Address:</span>
-              <p className="font-medium">{formData.present_address || 'Not specified'}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-gray-600">Email:</span>
-                <p className="font-medium">{formData.email || 'Not specified'}</p>
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <h4 className="font-semibold text-gray-800 mb-2">Contact Information</h4>
+                  <div className="space-y-1 text-sm">
+                    <div>
+                      <span className="text-gray-600">Present Address:</span>
+                      <p className="font-medium">{formData.present_address || 'Not specified'}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-gray-600">Email:</span>
+                        <p className="font-medium">{formData.email || 'Not specified'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Contact Number:</span>
+                        <p className="font-medium">{formData.contact}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <h4 className="font-semibold text-gray-800 mb-2">Professional Information</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">Educational Background:</span>
+                      <p className="font-medium">{formData.educational_background || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Occupation:</span>
+                      <p className="font-medium">{formData.occupation || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Ministry:</span>
+                      <p className="font-medium">{formData.ministry}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Date Started Ministry:</span>
+                      <p className="font-medium">{formData.date_started_ministry || 'Not specified'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <h4 className="font-semibold text-gray-800 mb-2">Ministry Information</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-gray-600">Date of Baptism:</span>
+                      <p className="font-medium">{formData.date_of_baptism || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Status:</span>
+                      <p className="font-medium">{formData.status}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-gray-600">QR ID:</span>
+                      <p className="font-medium font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                        {generateQRValue()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded-lg p-4 bg-gray-50">
+                  <h4 className="font-semibold text-gray-800 mb-2">Attachments</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex flex-col items-center">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
+                      {formData.profile_photo ? (
+                        <div className="mb-3">
+                          <img 
+                            src={profilePreview} 
+                            alt="Profile preview" 
+                            className="w-24 h-24 rounded-full object-cover border-2 border-gray-300"
+                          />
+                          <p className="text-xs text-center text-gray-600 mt-1">
+                            {formData.profile_photo.name}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center mb-3">
+                          <span className="text-gray-500 text-xs">No photo</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col items-center">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Signed Ministry Policy</label>
+                      {formData.policy_pdf ? (
+                        <div className="text-center">
+                          <svg className="w-16 h-16 text-red-500 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                          </svg>
+                          <p className="text-sm font-medium text-gray-700">
+                            {formData.policy_pdf.name}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          <svg className="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <p className="text-sm text-gray-600">No PDF uploaded</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-gray-600">Contact Number:</span>
-                <p className="font-medium">{formData.contact}</p>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  disabled={processing}
+                  className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveWorker}
+                  disabled={processing}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {processing ? 'Saving...' : 'Confirm & Save'}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {showQRModal && selectedWorker && (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-800">QR Code - {selectedWorker.name}</h2>
+                <button
+                  onClick={() => setShowQRModal(false)}
+                  className="cursor-pointer text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="px-6 py-6">
+                <div className="flex flex-col items-center space-y-4">
+                  <div ref={qrRef} className="bg-white p-6 rounded-lg border-2 border-gray-200">
+                    <QRCodeSVG 
+                      value={selectedWorker.qr_value}  
+                      size={256}
+                      level="H"
+                      includeMargin={true}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <p className="font-medium text-gray-800">{selectedWorker.name}</p>
+                    <p className="text-sm text-gray-600">{selectedWorker.ministry}</p>
+                    <p className="text-xs font-mono bg-gray-100 px-3 py-2 rounded break-all mt-2">
+                      {selectedWorker.qr_value}
+                    </p>
+                  </div>
+                  <div className="flex space-x-3 w-full">
+                    <button
+                      onClick={downloadQRCode}
+                      className="cursor-pointer flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Download QR
+                    </button>
+                    <button
+                      onClick={() => setShowQRModal(false)}
+                      className="cursor-pointer flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-
-        
-        <div className="border rounded-lg p-4 bg-gray-50">
-          <h4 className="font-semibold text-gray-800 mb-2">Professional Information</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-gray-600">Educational Background:</span>
-              <p className="font-medium">{formData.educational_background || 'Not specified'}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Occupation:</span>
-              <p className="font-medium">{formData.occupation || 'Not specified'}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Ministry:</span>
-              <p className="font-medium">{formData.ministry}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Date Started Ministry:</span>
-              <p className="font-medium">{formData.date_started_ministry || 'Not specified'}</p>
-            </div>
-          </div>
-        </div>
-
-        
-        <div className="border rounded-lg p-4 bg-gray-50">
-          <h4 className="font-semibold text-gray-800 mb-2">Ministry Information</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-gray-600">Date of Baptism:</span>
-              <p className="font-medium">{formData.date_of_baptism || 'Not specified'}</p>
-            </div>
-            <div>
-              <span className="text-gray-600">Status:</span>
-              <p className="font-medium">{formData.status}</p>
-            </div>
-            <div className="col-span-2">
-              <span className="text-gray-600">QR ID:</span>
-              <p className="font-medium font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                {generateQRValue()}
-              </p>
-            </div>
-          </div>
-        </div>
-
-       
-        <div className="border rounded-lg p-4 bg-gray-50">
-          <h4 className="font-semibold text-gray-800 mb-2">Attachments</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            <div className="flex flex-col items-center">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photo</label>
-              {formData.profile_photo ? (
-                <div className="mb-3">
-                  <img 
-                    src={profilePreview} 
-                    alt="Profile preview" 
-                    className="w-24 h-24 rounded-full object-cover border-2 border-gray-300"
-                  />
-                  <p className="text-xs text-center text-gray-600 mt-1">
-                    {formData.profile_photo.name}
-                  </p>
-                </div>
-              ) : (
-                <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center mb-3">
-                  <span className="text-gray-500 text-xs">No photo</span>
-                </div>
-              )}
-            </div>
-
-            
-            <div className="flex flex-col items-center">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Signed Ministry Policy</label>
-              {formData.policy_pdf ? (
-                <div className="text-center">
-                  <svg className="w-16 h-16 text-red-500 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
-                  </svg>
-                  <p className="text-sm font-medium text-gray-700">
-                    {formData.policy_pdf.name}
-                  </p>
-                </div>
-              ) : (
-                <div className="text-center">
-                  <svg className="w-16 h-16 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 01-2-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-sm text-gray-600">No PDF uploaded</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-3 pt-4">
-        <button
-          onClick={() => setShowConfirmModal(false)}
-          disabled={processing}
-          className="cursor-pointer px-4 py-2 border border-gray-300 rounded-lg text-gray-600 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 active:bg-red-100"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={saveWorker}
-          disabled={processing}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {processing ? 'Saving...' : 'Confirm & Save'}
-        </button>
-      </div>
-    </div>
-  </Modal>
-)}
-
-{showQRModal && selectedWorker && (
-  <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-    <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
-      <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-800">QR Code - {selectedWorker.name}</h2>
-        <button
-          onClick={() => setShowQRModal(false)}
-          className="cursor-pointer text-gray-400 hover:text-gray-600 text-2xl leading-none"
-        >
-          ×
-        </button>
-      </div>
-      <div className="px-6 py-6">
-        <div className="flex flex-col items-center space-y-4">
-          <div ref={qrRef} className="bg-white p-6 rounded-lg border-2 border-gray-200">
-            <QRCodeSVG 
-              value={selectedWorker.qr_value}  
-              size={256}
-              level="H"
-              includeMargin={true}
-            />
-          </div>
-          <div className="text-center">
-            <p className="font-medium text-gray-800">{selectedWorker.name}</p>
-            <p className="text-sm text-gray-600">{selectedWorker.ministry}</p>
-            <p className="text-xs font-mono bg-gray-100 px-3 py-2 rounded break-all mt-2">
-              {selectedWorker.qr_value}
-            </p>
-          </div>
-          <div className="flex space-x-3 w-full">
-            <button
-              onClick={downloadQRCode}
-              className="cursor-pointer flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Download QR
-            </button>
-            <button
-              onClick={() => setShowQRModal(false)}
-              className="cursor-pointer flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-{showEditModal && selectedWorker && (
-  <Modal onClose={() => {
-    setShowEditModal(false);
-    setEditProfilePreview(null);
-    setEditPolicyFileName('');
-  }} title={`Edit Worker - ${selectedWorker.name}`} size="large">
-    
-  </Modal>
-)}
+        )}
 
         {showEditModal && selectedWorker && (
           <Modal onClose={() => {
@@ -1483,13 +1483,24 @@ export default function Workers() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input
-                      type="email"
-                      value={editData.email}
-                      onChange={handleEditFormChange}
-                      name="email"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={editData.email}
+                        onChange={handleEditFormChange}
+                        name="email"
+                        placeholder="Enter email or N/A"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={setEditEmailToNA}
+                        className="cursor-pointer px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 border border-gray-300 text-sm whitespace-nowrap"
+                      >
+                        Set as N/A
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">You can enter "N/A" if worker has no email</p>
                   </div>
 
                   <div>
@@ -1775,7 +1786,6 @@ export default function Workers() {
         {showDetailsModal && selectedWorker && (
           <Modal onClose={() => setShowDetailsModal(false)} title={`Worker Details - ${selectedWorker.name}`} size="large">
             <div className="space-y-6">
-              
               <div className="flex flex-col items-center mb-6">
                 {selectedWorker.profile_photo_url ? (
                   <div className="flex flex-col items-center">
@@ -1843,7 +1853,13 @@ export default function Workers() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-gray-500">Email</p>
-                      <p className="font-medium">{selectedWorker.email || 'Not specified'}</p>
+                      <p className="font-medium">
+                        {selectedWorker.email === 'N/A' || !selectedWorker.email ? (
+                          <span className="italic text-gray-400">N/A</span>
+                        ) : (
+                          selectedWorker.email
+                        )}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Contact Number</p>
@@ -2002,7 +2018,6 @@ export default function Workers() {
 }
 
 function Modal({ children, onClose, title, size = 'medium' }) {
-  
   const sizeClasses = {
     small: 'max-w-md',
     medium: 'max-w-2xl',

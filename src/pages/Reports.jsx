@@ -1,32 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
-import { 
-  Download, 
-  Calendar, 
-  Users, 
-  Clock,
-  FileText,
-  BarChart3,
-  TrendingUp,
-  AlertCircle,
-  Filter,
-  X,
-  ChevronRight,
-  FileSpreadsheet,
-  Loader2
-} from 'lucide-react';
+import { Download, X, Loader2, ArrowUp, ArrowDown } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
-/**
- * Calculate attendance status based on check-in time and event type
- * Sunday Service: 6AM-9AM = Present, 9AM-9:15AM = Late, After 9:15AM = Absent
- * Other Events: On-time/15min = Present, 16-30min = Late, 30min+ = Absent
- */
 const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
   if (!checkInTime) return { status: 'absent', label: 'Absent', color: 'red' };
   
@@ -35,7 +16,6 @@ const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
   const minutes = time.getMinutes();
   const totalMinutes = (hours * 60) + minutes;
   
-  // Sunday Service specific logic
   if (eventType === 'sunday_service') {
     if (totalMinutes >= 360 && totalMinutes < 540) {
       return { status: 'present', label: 'Present', color: 'green' };
@@ -46,7 +26,6 @@ const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
     }
   }
   
-  // Other event types - compare with event start time
   if (eventStartTime) {
     const [startHour, startMinute] = eventStartTime.split(':').map(Number);
     const startTotalMinutes = startHour * 60 + startMinute;
@@ -64,132 +43,43 @@ const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
   return { status: 'present', label: 'Present', color: 'green' };
 };
 
-/**
- * Get status badge styling
- */
 const getStatusBadge = (status) => {
   switch(status) {
     case 'present':
-      return 'bg-green-100 text-green-800 border-green-200';
+      return 'bg-green-50 text-green-700 border-green-200';
     case 'late':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-yellow-50 text-yellow-700 border-yellow-200';
     case 'absent':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-red-50 text-red-700 border-red-200';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-50 text-gray-700 border-gray-200';
   }
 };
 
-/**
- * Event type configuration with labels and colors
- */
 const EVENT_TYPES = {
-  sunday_service: { label: 'Sunday Service', color: 'bg-purple-100 text-purple-800', icon: '⛪' },
-  prayer_meeting: { label: 'Prayer Meeting', color: 'bg-blue-100 text-blue-800', icon: '🙏' },
-  bible_study: { label: 'Bible Study', color: 'bg-green-100 text-green-800', icon: '📖' },
-  meet: { label: 'Meeting / Setup', color: 'bg-orange-100 text-orange-800', icon: '📋' },
-  outreach: { label: 'Workers Conference', color: 'bg-red-100 text-red-800', icon: '🎯' },
-  church_event: { label: 'Church Event', color: 'bg-indigo-100 text-indigo-800', icon: '🎉' }
+  sunday_service: { label: 'Sunday Service', color: 'bg-purple-50 text-purple-700' },
+  prayer_meeting: { label: 'Prayer Meeting', color: 'bg-blue-50 text-blue-700' },
+  bible_study: { label: 'Bible Study', color: 'bg-green-50 text-green-700' },
+  meet: { label: 'Meeting / Setup', color: 'bg-orange-50 text-orange-700' },
+  outreach: { label: 'Workers Conference', color: 'bg-red-50 text-red-700' },
+  church_event: { label: 'Church Event', color: 'bg-indigo-50 text-indigo-700' }
 };
 
 // ============================================================================
-// SUBCOMPONENTS
+// SUBCOMPONENT: Export Button
 // ============================================================================
-
-/**
- * Summary Statistics Card Component
- */
-const StatCard = ({ icon: Icon, label, value, trend, color = 'blue' }) => {
-  const colorClasses = {
-    blue: 'from-blue-600 to-blue-700',
-    green: 'from-green-600 to-green-700',
-    yellow: 'from-yellow-500 to-yellow-600',
-    red: 'from-red-600 to-red-700',
-    purple: 'from-purple-600 to-purple-700',
-    indigo: 'from-indigo-600 to-indigo-700'
-  };
-  
-  return (
-    <div className={`bg-gradient-to-br ${colorClasses[color]} rounded-2xl p-6 text-white shadow-lg transform hover:scale-105 transition-all`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="bg-white bg-opacity-20 p-3 rounded-xl">
-          <Icon className="w-6 h-6" />
-        </div>
-        {trend && (
-          <div className="flex items-center gap-1 bg-white bg-opacity-20 px-3 py-1 rounded-full text-sm font-semibold">
-            <TrendingUp className="w-4 h-4" />
-            {trend}
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-white text-opacity-90 font-medium mb-1">{label}</p>
-      <p className="text-4xl font-extrabold">{value}</p>
-    </div>
-  );
-};
-
-/**
- * Simple Bar Chart Component
- */
-const SimpleBarChart = ({ data, title, xKey, yKey, color = 'blue' }) => {
-  if (!data || data.length === 0) {
-    return (
-      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-4">{title}</h3>
-        <div className="flex items-center justify-center h-64 text-gray-400">
-          <p>No data available</p>
-        </div>
-      </div>
-    );
-  }
-  
-  const maxValue = Math.max(...data.map(d => d[yKey]));
-  
-  const colorClasses = {
-    blue: 'bg-blue-600',
-    green: 'bg-green-600',
-    purple: 'bg-purple-600',
-    orange: 'bg-orange-600'
-  };
-  
-  return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-      <h3 className="text-lg font-bold text-gray-900 mb-6">{title}</h3>
-      <div className="space-y-4">
-        {data.map((item, index) => (
-          <div key={index} className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-gray-700">{item[xKey]}</span>
-              <span className="font-bold text-gray-900">{item[yKey]}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-              <div 
-                className={`h-full ${colorClasses[color]} rounded-full transition-all duration-500`}
-                style={{ width: `${(item[yKey] / maxValue) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-/**
- * Export Button Component
- */
-const ExportButton = ({ onClick, loading, type = 'CSV' }) => (
+const ExportButton = ({ onClick, loading, disabled, children }) => (
   <button
     onClick={onClick}
-    disabled={loading}
-    className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+    disabled={disabled || loading}
+    className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
   >
     {loading ? (
-      <Loader2 className="w-4 h-4 animate-spin" />
+      <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
     ) : (
-      <Download className="w-4 h-4" />
+      <Download className="w-3.5 h-3.5 mr-1" />
     )}
-    Export {type}
+    {children || 'Export CSV'}
   </button>
 );
 
@@ -202,17 +92,15 @@ export default function Reports() {
   // STATE MANAGEMENT
   // ========================================
   
-  const [viewMode, setViewMode] = useState('sunday'); // 'sunday', 'late', 'events'
+  const [viewMode, setViewMode] = useState('sunday');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   
-  // Date range state
   const [dateRange, setDateRange] = useState({
     startDate: format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'),
     endDate: format(endOfMonth(new Date()), 'yyyy-MM-dd')
   });
   
-  // Data state
   const [allWorkers, setAllWorkers] = useState([]);
   const [sundayReports, setSundayReports] = useState([]);
   const [eventReports, setEventReports] = useState([]);
@@ -220,27 +108,18 @@ export default function Reports() {
   const [selectedReport, setSelectedReport] = useState(null);
   const [attendanceDetails, setAttendanceDetails] = useState([]);
   
-  // Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [eventTypeFilter, setEventTypeFilter] = useState('all');
   const [ministryFilter, setMinistryFilter] = useState('all');
   const [ministries, setMinistries] = useState([]);
   
-  // Summary statistics
-  const [summaryStats, setSummaryStats] = useState({
-    totalEvents: 0,
-    totalAttendance: 0,
-    averageAttendance: 0,
-    attendanceRate: 0
-  });
+  // Sorting state
+  const [sortOrder, setSortOrder] = useState('desc'); // 'desc' = latest first, 'asc' = oldest first
 
   // ========================================
-  // DATA FETCHING
+  // DATA FETCHING (unchanged)
   // ========================================
   
-  /**
-   * Fetch all active workers and extract ministries
-   */
   const fetchWorkers = async () => {
     try {
       const { data, error } = await supabase
@@ -252,8 +131,6 @@ export default function Reports() {
       if (error) throw error;
       
       setAllWorkers(data || []);
-      
-      // Extract unique ministries
       const uniqueMinistries = [...new Set(data?.map(w => w.ministry).filter(Boolean))];
       setMinistries(uniqueMinistries.sort());
     } catch (error) {
@@ -261,14 +138,9 @@ export default function Reports() {
     }
   };
   
-  /**
-   * Fetch Sunday Service Reports
-   * FIXED: Now properly queries event_attendance table
-   */
   const fetchSundayReports = async () => {
     setLoading(true);
     try {
-      // Get Sunday service events
       const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
@@ -280,7 +152,6 @@ export default function Reports() {
       
       if (eventsError) throw eventsError;
       
-      // FIXED: Query event_attendance with worker join for each event
       const reports = await Promise.all(
         (events || []).map(async (event) => {
           const { data: attendance, error: attError } = await supabase
@@ -293,7 +164,6 @@ export default function Reports() {
           
           if (attError) throw attError;
           
-          // Calculate statistics with proper status calculation
           const totalWorkers = allWorkers.length;
           let presentCount = 0;
           let lateCount = 0;
@@ -335,22 +205,6 @@ export default function Reports() {
       );
       
       setSundayReports(reports);
-      
-      // Calculate summary stats
-      const totalEvents = reports.length;
-      const totalAttendance = reports.reduce((sum, r) => sum + r.scanned, 0);
-      const avgAttendance = totalEvents > 0 ? totalAttendance / totalEvents : 0;
-      const avgRate = totalEvents > 0 
-        ? reports.reduce((sum, r) => sum + r.attendanceRate, 0) / totalEvents 
-        : 0;
-      
-      setSummaryStats({
-        totalEvents,
-        totalAttendance,
-        averageAttendance: Math.round(avgAttendance),
-        attendanceRate: parseFloat(avgRate.toFixed(1))
-      });
-      
     } catch (error) {
       console.error('Error fetching Sunday reports:', error);
       alert('Failed to load Sunday service reports');
@@ -359,14 +213,9 @@ export default function Reports() {
     }
   };
   
-  /**
-   * Fetch Event Attendance Reports (all events EXCEPT Sunday Service)
-   * FIXED: Now includes all event types except sunday_service
-   */
   const fetchEventReports = async () => {
     setLoading(true);
     try {
-      // Get all events EXCEPT sunday_service
       const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
@@ -378,7 +227,6 @@ export default function Reports() {
       
       if (eventsError) throw eventsError;
       
-      // FIXED: Query event_attendance with worker join for each event
       const reports = await Promise.all(
         (events || []).map(async (event) => {
           const { data: attendance, error: attError } = await supabase
@@ -391,7 +239,6 @@ export default function Reports() {
           
           if (attError) throw attError;
           
-          // Calculate statistics
           const totalWorkers = allWorkers.length;
           const scannedCount = attendance?.length || 0;
           const pending = Math.max(0, totalWorkers - scannedCount);
@@ -419,22 +266,6 @@ export default function Reports() {
       );
       
       setEventReports(reports);
-      
-      // Calculate summary stats
-      const totalEvents = reports.length;
-      const totalAttendance = reports.reduce((sum, r) => sum + r.scanned, 0);
-      const avgAttendance = totalEvents > 0 ? totalAttendance / totalEvents : 0;
-      const avgRate = totalEvents > 0 
-        ? reports.reduce((sum, r) => sum + r.attendanceRate, 0) / totalEvents 
-        : 0;
-      
-      setSummaryStats({
-        totalEvents,
-        totalAttendance,
-        averageAttendance: Math.round(avgAttendance),
-        attendanceRate: parseFloat(avgRate.toFixed(1))
-      });
-      
     } catch (error) {
       console.error('Error fetching event reports:', error);
       alert('Failed to load event attendance reports');
@@ -443,14 +274,9 @@ export default function Reports() {
     }
   };
   
-  /**
-   * Fetch Late Workers Report
-   * FIXED: Now properly queries event_attendance table
-   */
   const fetchLateWorkers = async () => {
     setLoading(true);
     try {
-      // Get Sunday service events
       const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
@@ -463,7 +289,6 @@ export default function Reports() {
       
       const lateRecords = [];
       
-      // FIXED: Query event_attendance for each event
       for (const event of (events || [])) {
         const { data: attendance, error: attError } = await supabase
           .from('event_attendance')
@@ -475,7 +300,6 @@ export default function Reports() {
         
         if (attError) throw attError;
         
-        // Filter for late arrivals
         (attendance || []).forEach(record => {
           const status = calculateAttendanceStatus(
             record.check_in_time,
@@ -506,17 +330,6 @@ export default function Reports() {
       }
       
       setLateWorkers(lateRecords);
-      
-      // Calculate summary stats
-      setSummaryStats({
-        totalEvents: events?.length || 0,
-        totalLateInstances: lateRecords.length,
-        uniqueWorkers: new Set(lateRecords.map(r => r.workerName)).size,
-        averageLateMinutes: lateRecords.length > 0
-          ? Math.round(lateRecords.reduce((sum, r) => sum + r.minutesLate, 0) / lateRecords.length)
-          : 0
-      });
-      
     } catch (error) {
       console.error('Error fetching late workers:', error);
       alert('Failed to load late workers report');
@@ -525,11 +338,8 @@ export default function Reports() {
     }
   };
   
-  /**
-   * Load attendance details for a selected report
-   */
   const loadAttendanceDetails = (report) => {
-    setSelectedReport(report);
+    setSelectedReport(prev => prev?.id === report.id ? null : report);
     
     if (report.attendanceRecords) {
       const details = report.attendanceRecords.map(record => {
@@ -552,12 +362,9 @@ export default function Reports() {
   };
 
   // ========================================
-  // EXPORT FUNCTIONS
+  // EXPORT FUNCTIONS (unchanged)
   // ========================================
   
-  /**
-   * Export report to CSV
-   */
   const exportToCSV = (report, details) => {
     setExporting(true);
     
@@ -595,9 +402,6 @@ export default function Reports() {
     }
   };
   
-  /**
-   * Export late workers to CSV
-   */
   const exportLateWorkersCSV = () => {
     setExporting(true);
     
@@ -637,21 +441,22 @@ export default function Reports() {
   };
 
   // ========================================
-  // FILTERING & COMPUTED DATA
+  // FILTERING & SORTING
   // ========================================
   
-  /**
-   * Filtered and searched reports
-   */
+  // Toggle sort order
+  const toggleSort = () => {
+    setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
+  };
+  
+  // Filtered and sorted reports
   const filteredReports = useMemo(() => {
     let reports = viewMode === 'sunday' ? sundayReports : eventReports;
     
-    // Apply event type filter
     if (eventTypeFilter !== 'all') {
       reports = reports.filter(r => r.type === eventTypeFilter);
     }
     
-    // Apply search
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       reports = reports.filter(r => 
@@ -660,21 +465,21 @@ export default function Reports() {
       );
     }
     
-    return reports;
-  }, [viewMode, sundayReports, eventReports, eventTypeFilter, searchTerm]);
+    // Sort by date
+    return [...reports].sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+  }, [viewMode, sundayReports, eventReports, eventTypeFilter, searchTerm, sortOrder]);
   
-  /**
-   * Filtered late workers
-   */
   const filteredLateWorkers = useMemo(() => {
     let workers = lateWorkers;
     
-    // Apply ministry filter
     if (ministryFilter !== 'all') {
       workers = workers.filter(w => w.ministry === ministryFilter);
     }
     
-    // Apply search
     if (searchTerm) {
       const search = searchTerm.toLowerCase();
       workers = workers.filter(w =>
@@ -685,38 +490,9 @@ export default function Reports() {
     
     return workers;
   }, [lateWorkers, ministryFilter, searchTerm]);
-  
-  /**
-   * Chart data for event types
-   */
-  const eventTypeChartData = useMemo(() => {
-    const counts = {};
-    
-    eventReports.forEach(report => {
-      const type = report.type || 'other';
-      counts[type] = (counts[type] || 0) + 1;
-    });
-    
-    return Object.entries(counts).map(([type, count]) => ({
-      name: EVENT_TYPES[type]?.label || type,
-      count
-    }));
-  }, [eventReports]);
-  
-  /**
-   * Chart data for attendance trends
-   */
-  const attendanceTrendData = useMemo(() => {
-    const reports = viewMode === 'sunday' ? sundayReports : eventReports;
-    
-    return reports.slice(0, 10).reverse().map(report => ({
-      date: report.shortDate,
-      attendance: report.scanned
-    }));
-  }, [viewMode, sundayReports, eventReports]);
 
   // ========================================
-  // EFFECTS
+  // EFFECTS (unchanged)
   // ========================================
   
   useEffect(() => {
@@ -740,99 +516,85 @@ export default function Reports() {
   }, [viewMode, dateRange, allWorkers]);
 
   // ========================================
-  // RENDER
+  // RENDER — enhanced with depth, compact dates, sorting
   // ========================================
   
   return (
     <SidebarLayout>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-6">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">
-            Attendance Reports
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Comprehensive analytics and insights for church attendance
-          </p>
+      <div className="bg-white border border-gray-200 rounded-md shadow-sm p-4 md:p-6">
+        {/* Page Header */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-gray-900">Attendance Reports</h1>
+          <p className="text-sm text-gray-500 mt-1">View and export attendance records</p>
         </div>
 
         {/* View Mode Tabs */}
-        <div className="mb-8">
-          <div className="flex flex-wrap gap-3">
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="-mb-px flex space-x-6">
             <button
               onClick={() => setViewMode('sunday')}
-              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
+              className={`pb-3 px-1 text-sm font-medium border-b-2 ${
                 viewMode === 'sunday'
-                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white transform scale-105'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Calendar className="w-5 h-5" />
               Sunday Service
             </button>
             <button
               onClick={() => setViewMode('events')}
-              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
+              className={`pb-3 px-1 text-sm font-medium border-b-2 ${
                 viewMode === 'events'
-                  ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white transform scale-105'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Users className="w-5 h-5" />
               Event Attendance
             </button>
             <button
               onClick={() => setViewMode('late')}
-              className={`cursor-pointer px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 ${
+              className={`pb-3 px-1 text-sm font-medium border-b-2 ${
                 viewMode === 'late'
-                  ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white transform scale-105'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Clock className="w-5 h-5" />
               Late Workers
             </button>
-          </div>
+          </nav>
         </div>
 
-        {/* Filters Section */}
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 mb-8">
+        {/* Filters — compact, with shadow and border */}
+        <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-6 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-end gap-4">
-            {/* Date Range */}
-            <div className="flex-1">
-              <label className="block text-sm font-bold text-gray-700 mb-2">
-                Start Date
-              </label>
+            {/* Date range — reduced width */}
+            <div className="flex flex-col w-full md:w-auto md:max-w-[160px]">
+              <label className="text-xs font-medium text-gray-500 mb-1">Start Date</label>
               <input
                 type="date"
                 value={dateRange.startDate}
                 onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-                className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-full"
               />
             </div>
-            
-            <div className="flex-1">
-              <label className="block text-sm font-bold text-gray-700 mb-2">
-                End Date
-              </label>
+            <div className="flex flex-col w-full md:w-auto md:max-w-[160px]">
+              <label className="text-xs font-medium text-gray-500 mb-1">End Date</label>
               <input
                 type="date"
                 value={dateRange.endDate}
                 onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-                className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-full"
               />
             </div>
-            
-            {/* Event Type Filter (for events view) */}
+
+            {/* Event Type Filter (events view) */}
             {viewMode === 'events' && (
-              <div className="flex-1">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Event Type
-                </label>
+              <div className="flex flex-col w-full md:w-auto md:min-w-[160px]">
+                <label className="text-xs font-medium text-gray-500 mb-1">Event Type</label>
                 <select
                   value={eventTypeFilter}
                   onChange={(e) => setEventTypeFilter(e.target.value)}
-                  className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-full"
                 >
                   <option value="all">All Types</option>
                   {Object.entries(EVENT_TYPES)
@@ -844,17 +606,15 @@ export default function Reports() {
                 </select>
               </div>
             )}
-            
-            {/* Ministry Filter (for late workers) */}
+
+            {/* Ministry Filter (late workers view) */}
             {viewMode === 'late' && (
-              <div className="flex-1">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Ministry
-                </label>
+              <div className="flex flex-col w-full md:w-auto md:min-w-[160px]">
+                <label className="text-xs font-medium text-gray-500 mb-1">Ministry</label>
                 <select
                   value={ministryFilter}
                   onChange={(e) => setMinistryFilter(e.target.value)}
-                  className="cursor-pointer w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                  className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-full"
                 >
                   <option value="all">All Ministries</option>
                   {ministries.map(ministry => (
@@ -863,27 +623,24 @@ export default function Reports() {
                 </select>
               </div>
             )}
-            
+
             {/* Search */}
-            <div className="flex-1">
-              <label className="block text-sm font-bold text-gray-700 mb-2">
-                Search
-              </label>
+            <div className="flex flex-col flex-1 min-w-[200px]">
+              <label className="text-xs font-medium text-gray-500 mb-1">Search</label>
               <div className="relative">
                 <input
                   type="text"
                   placeholder="Search..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-3 pl-10 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium transition-all"
+                  className=" border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 />
-                <Filter className="w-5 h-5 text-gray-400 absolute left-3 top-3.5" />
                 {searchTerm && (
                   <button
                     onClick={() => setSearchTerm('')}
-                    className="cursor-pointer absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -891,389 +648,243 @@ export default function Reports() {
           </div>
         </div>
 
-        {/* Summary Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {viewMode === 'sunday' && (
-            <>
-              <StatCard
-                icon={Calendar}
-                label="Total Services"
-                value={summaryStats.totalEvents}
-                color="purple"
-              />
-              <StatCard
-                icon={Users}
-                label="Total Attendance"
-                value={summaryStats.totalAttendance}
-                color="blue"
-              />
-              <StatCard
-                icon={TrendingUp}
-                label="Avg. Attendance"
-                value={summaryStats.averageAttendance}
-                color="green"
-              />
-              <StatCard
-                icon={BarChart3}
-                label="Avg. Rate"
-                value={`${summaryStats.attendanceRate}%`}
-                color={summaryStats.attendanceRate >= 70 ? 'green' : summaryStats.attendanceRate >= 50 ? 'yellow' : 'red'}
-              />
-            </>
-          )}
-          
-          {viewMode === 'events' && (
-            <>
-              <StatCard
-                icon={Calendar}
-                label="Total Events"
-                value={summaryStats.totalEvents}
-                color="blue"
-              />
-              <StatCard
-                icon={Users}
-                label="Total Attendance"
-                value={summaryStats.totalAttendance}
-                color="green"
-              />
-              <StatCard
-                icon={TrendingUp}
-                label="Avg. Attendance"
-                value={summaryStats.averageAttendance}
-                color="indigo"
-              />
-              <StatCard
-                icon={BarChart3}
-                label="Avg. Rate"
-                value={`${summaryStats.attendanceRate}%`}
-                color={summaryStats.attendanceRate >= 70 ? 'green' : summaryStats.attendanceRate >= 50 ? 'yellow' : 'red'}
-              />
-            </>
-          )}
-          
-          {viewMode === 'late' && (
-            <>
-              <StatCard
-                icon={Calendar}
-                label="Services Reviewed"
-                value={summaryStats.totalEvents}
-                color="purple"
-              />
-              <StatCard
-                icon={Clock}
-                label="Late Instances"
-                value={summaryStats.totalLateInstances}
-                color="yellow"
-              />
-              <StatCard
-                icon={Users}
-                label="Unique Workers"
-                value={summaryStats.uniqueWorkers}
-                color="blue"
-              />
-              <StatCard
-                icon={TrendingUp}
-                label="Avg. Late (mins)"
-                value={summaryStats.averageLateMinutes}
-                color="red"
-              />
-            </>
-          )}
-        </div>
-
-        {/* Analytics Charts */}
-        {(viewMode === 'sunday' || viewMode === 'events') && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <SimpleBarChart
-              data={attendanceTrendData}
-              title="Attendance Trend (Last 10 Events)"
-              xKey="date"
-              yKey="attendance"
-              color="blue"
-            />
-            
-            {viewMode === 'events' && eventTypeChartData.length > 0 && (
-              <SimpleBarChart
-                data={eventTypeChartData}
-                title="Events by Type"
-                xKey="name"
-                yKey="count"
-                color="purple"
-              />
-            )}
-          </div>
-        )}
-
-        {/* Reports Content */}
+        {/* Loading State */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-center">
-              <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-              <p className="text-gray-600 font-medium">Loading reports...</p>
-            </div>
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           </div>
         ) : (
           <>
-            {/* Sunday Service & Event Reports */}
+            {/* SUNDAY & EVENT REPORTS — table with sortable date */}
             {(viewMode === 'sunday' || viewMode === 'events') && (
-              <div className="space-y-6">
-                {filteredReports.length === 0 ? (
-                  <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-12 text-center">
-                    <Calendar className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-                    <h3 className="text-xl font-bold text-gray-800 mb-2">No Reports Found</h3>
-                    <p className="text-gray-600">
-                      No {viewMode === 'sunday' ? 'Sunday services' : 'events'} found for the selected criteria.
-                    </p>
-                  </div>
-                ) : (
-                  filteredReports.map((report) => (
-                    <div
-                      key={report.id}
-                      className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-all"
-                    >
-                      {/* Report Header */}
-                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-gray-200">
-                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <h3 className="text-xl font-bold text-gray-900">
-                                {report.title}
-                              </h3>
-                              {report.type && (
-                                <span className={`px-3 py-1 text-xs font-bold rounded-full ${EVENT_TYPES[report.type]?.color}`}>
-                                  {EVENT_TYPES[report.type]?.icon} {EVENT_TYPES[report.type]?.label}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                              <div className="flex items-center gap-2">
-                                <Calendar className="w-4 h-4" />
-                                <span className="font-medium">{report.formattedDate}</span>
-                              </div>
-                              {report.startTime && (
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4" />
-                                  <span className="font-medium">{report.startTime} - {report.endTime}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => loadAttendanceDetails(report)}
-                              className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
-                            >
-                              {selectedReport?.id === report.id ? 'Hide Details' : 'View Details'}
-                              <ChevronRight className={`w-4 h-4 transition-transform ${selectedReport?.id === report.id ? 'rotate-90' : ''}`} />
-                            </button>
-                            <button
-                              onClick={() => exportToCSV(report, report.attendanceRecords.map(r => ({
-                                ...r,
-                                workerName: r.worker?.name || 'Unknown',
-                                ministry: r.worker?.ministry || 'N/A',
-                                status: calculateAttendanceStatus(r.check_in_time, report.startTime, report.type || 'sunday_service')
-                              })))}
-                              className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md hover:shadow-lg"
-                            >
-                              <Download className="w-4 h-4" />
-                              Export
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {/* Summary Stats */}
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-600 font-semibold mb-1">Total</p>
-                            <p className="text-2xl font-extrabold text-blue-600">{report.totalWorkers}</p>
-                          </div>
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-600 font-semibold mb-1">Present</p>
-                            <p className="text-2xl font-extrabold text-green-600">{report.present}</p>
-                          </div>
-                          {viewMode === 'sunday' && (
-                            <>
-                              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                                <p className="text-xs text-gray-600 font-semibold mb-1">Late</p>
-                                <p className="text-2xl font-extrabold text-yellow-600">{report.late}</p>
-                              </div>
-                              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                                <p className="text-xs text-gray-600 font-semibold mb-1">Absent</p>
-                                <p className="text-2xl font-extrabold text-red-600">{report.absent}</p>
-                              </div>
-                            </>
-                          )}
-                          {viewMode === 'events' && (
-                            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                              <p className="text-xs text-gray-600 font-semibold mb-1">Pending</p>
-                              <p className="text-2xl font-extrabold text-yellow-600">{report.pending}</p>
-                            </div>
-                          )}
-                          <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                            <p className="text-xs text-gray-600 font-semibold mb-1">Rate</p>
-                            <p className={`text-2xl font-extrabold ${
-                              report.attendanceRate >= 70 ? 'text-green-600' :
-                              report.attendanceRate >= 50 ? 'text-yellow-600' : 'text-red-600'
-                            }`}>
-                              {report.attendanceRate}%
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Attendance Details */}
-                      {selectedReport?.id === report.id && (
-                        <div className="p-6">
-                          <h4 className="text-lg font-bold text-gray-900 mb-4">
-                            Attendance Records ({attendanceDetails.length})
-                          </h4>
-                          
-                          {attendanceDetails.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500">
-                              <AlertCircle className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                              <p className="font-medium">No attendance records</p>
-                            </div>
+              <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {/* Date column with sort toggle */}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <button
+                          onClick={toggleSort}
+                          className="flex items-center gap-1 hover:text-gray-700"
+                        >
+                          Date
+                          {sortOrder === 'desc' ? (
+                            <ArrowDown className="w-3.5 h-3.5" />
                           ) : (
-                            <div className="overflow-x-auto rounded-xl border border-gray-200">
-                              <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-100">
-                                  <tr>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Name
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Ministry
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Check-in Time
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Scan Type
-                                    </th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Status
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                  {attendanceDetails.map((record, index) => (
-                                    <tr key={index} className="hover:bg-blue-50 transition-colors">
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                                        {record.workerName}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                                        {record.ministry}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                                        {new Date(record.check_in_time).toLocaleTimeString('en-US', {
-                                          hour: '2-digit',
-                                          minute: '2-digit'
-                                        })}
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${
-                                          record.scan_type === 'qr' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                                          'bg-purple-100 text-purple-800 border border-purple-200'
-                                        }`}>
-                                          {(record.scan_type || 'qr').toUpperCase()}
-                                        </span>
-                                      </td>
-                                      <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-3 py-1.5 text-xs font-bold rounded-full border-2 ${getStatusBadge(record.status.status)}`}>
-                                          {record.status.label.toUpperCase()}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <ArrowUp className="w-3.5 h-3.5" />
                           )}
-                        </div>
+                        </button>
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                      {viewMode === 'events' && (
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                       )}
-                    </div>
-                  ))
-                )}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
+                      {viewMode === 'sunday' && (
+                        <>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Late</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Absent</th>
+                        </>
+                      )}
+                      {viewMode === 'events' && (
+                        <>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scanned</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pending</th>
+                        </>
+                      )}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredReports.length === 0 ? (
+                      <tr>
+                        <td colSpan={viewMode === 'sunday' ? 9 : 10} className="px-4 py-8 text-center text-gray-500">
+                          No reports found for the selected criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredReports.map((report) => (
+                        <>
+                          {/* Main report row */}
+                          <tr key={report.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-900">
+                              {report.shortDate}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
+                              {report.title}
+                            </td>
+                            {viewMode === 'events' && (
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className={`px-2 py-1 text-xs font-medium rounded-md ${EVENT_TYPES[report.type]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                  {EVENT_TYPES[report.type]?.label || report.type}
+                                </span>
+                              </td>
+                            )}
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.totalWorkers}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.present || report.scanned}</td>
+                            {viewMode === 'sunday' && (
+                              <>
+                                <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.late}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.absent}</td>
+                              </>
+                            )}
+                            {viewMode === 'events' && (
+                              <>
+                                <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.scanned}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.pending}</td>
+                              </>
+                            )}
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className={`px-2 py-1 text-xs font-medium rounded-md ${
+                                report.attendanceRate >= 70 ? 'bg-green-50 text-green-700' :
+                                report.attendanceRate >= 50 ? 'bg-yellow-50 text-yellow-700' :
+                                'bg-red-50 text-red-700'
+                              }`}>
+                                {report.attendanceRate}%
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => loadAttendanceDetails(report)}
+                                  className="text-xs text-gray-600 hover:text-gray-900 border border-gray-300 px-2 py-1 rounded-md bg-white hover:bg-gray-50 shadow-sm"
+                                >
+                                  {selectedReport?.id === report.id ? 'Hide' : 'View'}
+                                </button>
+                                <ExportButton
+                                  onClick={() => exportToCSV(report, report.attendanceRecords.map(r => ({
+                                    ...r,
+                                    workerName: r.worker?.name || 'Unknown',
+                                    ministry: r.worker?.ministry || 'N/A',
+                                    status: calculateAttendanceStatus(r.check_in_time, report.startTime, report.type || 'sunday_service')
+                                  })))}
+                                  loading={exporting}
+                                  disabled={report.attendanceRecords.length === 0}
+                                >
+                                  Export
+                                </ExportButton>
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Expanded attendance details row */}
+                          {selectedReport?.id === report.id && (
+                            <tr className="bg-gray-50">
+                              <td colSpan={viewMode === 'sunday' ? 9 : 10} className="px-4 py-4">
+                                <div className="bg-white border border-gray-200 rounded-md overflow-hidden shadow-sm">
+                                  <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+                                    <h4 className="text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                      Attendance Records ({attendanceDetails.length})
+                                    </h4>
+                                  </div>
+                                  {attendanceDetails.length === 0 ? (
+                                    <div className="px-4 py-6 text-center text-gray-500 text-sm">
+                                      No attendance records
+                                    </div>
+                                  ) : (
+                                    <div className="overflow-x-auto">
+                                      <table className="min-w-full divide-y divide-gray-200 text-xs">
+                                        <thead className="bg-gray-50">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Name</th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Ministry</th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Check-in</th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Scan Type</th>
+                                            <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase">Status</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="bg-white divide-y divide-gray-200">
+                                          {attendanceDetails.map((record, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50">
+                                              <td className="px-3 py-2 whitespace-nowrap font-medium text-gray-900">
+                                                {record.workerName}
+                                              </td>
+                                              <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                                                {record.ministry}
+                                              </td>
+                                              <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                                                {new Date(record.check_in_time).toLocaleTimeString('en-US', {
+                                                  hour: '2-digit',
+                                                  minute: '2-digit'
+                                                })}
+                                              </td>
+                                              <td className="px-3 py-2 whitespace-nowrap">
+                                                <span className={`px-2 py-0.5 text-xs font-medium rounded-md ${
+                                                  record.scan_type === 'qr' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+                                                }`}>
+                                                  {(record.scan_type || 'qr').toUpperCase()}
+                                                </span>
+                                              </td>
+                                              <td className="px-3 py-2 whitespace-nowrap">
+                                                <span className={`px-2 py-0.5 text-xs font-medium rounded-md border ${getStatusBadge(record.status.status)}`}>
+                                                  {record.status.label}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
 
-            {/* Late Workers Report */}
+            {/* LATE WORKERS REPORT — table with depth */}
             {viewMode === 'late' && (
-              <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-orange-50 to-red-50 p-6 border-b border-gray-200">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        Late Workers Report
-                      </h3>
-                      <p className="text-sm text-gray-600 font-medium">
-                        Workers who arrived after 9:00 AM ({filteredLateWorkers.length} records)
-                      </p>
-                    </div>
-                    {filteredLateWorkers.length > 0 && (
-                      <ExportButton onClick={exportLateWorkersCSV} loading={exporting} />
-                    )}
-                  </div>
+              <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium text-gray-700">Late Workers Report</h3>
+                  <ExportButton
+                    onClick={exportLateWorkersCSV}
+                    loading={exporting}
+                    disabled={filteredLateWorkers.length === 0}
+                  >
+                    Export CSV
+                  </ExportButton>
                 </div>
-                
                 {filteredLateWorkers.length === 0 ? (
-                  <div className="p-12 text-center">
-                    <Clock className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-                    <h3 className="text-xl font-bold text-gray-800 mb-2">No Late Workers</h3>
-                    <p className="text-gray-600">
-                      No late arrivals found for the selected criteria.
-                    </p>
+                  <div className="px-4 py-8 text-center text-gray-500">
+                    No late workers found for the selected criteria.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-100">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                      <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Name
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Ministry
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Event Date
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Event Title
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Check-in Time
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            Minutes Late
-                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ministry</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Date</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Title</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-in</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Minutes Late</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {filteredLateWorkers.map((worker, index) => (
-                          <tr key={index} className="hover:bg-orange-50 transition-colors">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                              {worker.workerName}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                              {worker.ministry}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                              {worker.formattedDate}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
-                              {worker.eventTitle}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-medium">
+                        {filteredLateWorkers.map((worker, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">{worker.workerName}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">{worker.ministry}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">{worker.formattedDate}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">{worker.eventTitle}</td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">
                               {new Date(worker.checkInTime).toLocaleTimeString('en-US', {
                                 hour: '2-digit',
                                 minute: '2-digit'
                               })}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="px-3 py-1.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 border-2 border-yellow-200">
-                                {worker.minutesLate} MINS LATE
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span className="px-2 py-1 text-xs font-medium rounded-md bg-yellow-50 text-yellow-700 border border-yellow-200">
+                                {worker.minutesLate} min
                               </span>
                             </td>
                           </tr>

@@ -30,7 +30,7 @@ const handleLogout = async () => {
           Confirm Logout
         </h3>
         <p className="mt-3 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-          Are you sure you want to log out? You will need to sign back in to access your dashboard.
+          Are you sure you want to log out?
         </p>
 
         <div className="mt-8 flex justify-end gap-3">

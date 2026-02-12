@@ -13,7 +13,7 @@ export default function EventForm({ event, onClose, onSave }) {
     end_time: '12:00',
     place: 'Church',
     location: 'Church',
-    status: 'approved',
+    status: 'proposed',
     preacher: '',
     organizer: ''
   });
@@ -39,7 +39,7 @@ export default function EventForm({ event, onClose, onSave }) {
         end_time: event.end_time?.slice(0, 5) || '12:00',
         place: event.place || 'Church',
         location: event.location || 'Church',
-        status: event.status || 'approved',
+        status: event.status || 'proposed',
         preacher: event.preacher || '',
         organizer: event.organizer || ''
       });
@@ -111,11 +111,10 @@ export default function EventForm({ event, onClose, onSave }) {
   ];
 
   return (
-    /* Added backdrop-blur-sm here */
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         
-        {/* --- NEW HEADER --- */}
+        {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-white flex-shrink-0">
           <h2 className="text-xl font-bold text-gray-800">
             {event ? 'Edit Event' : 'Create New Event'}
@@ -171,11 +170,8 @@ export default function EventForm({ event, onClose, onSave }) {
                   className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="sunday_service">Sunday Service</option>
-                  <option value="prayer_meeting">Prayer Meeting</option>
-                  <option value="bible_study">Bible Study</option>
-                  <option value="meet">Meeting/Setup</option>
-                  <option value="outreach">Workers Conference</option>
-                  <option value="Church Event">Church Event</option>
+                  <option value="event">Church Event</option>
+                  <option value="meeting">Meetings</option>
                 </select>
               </div>
 
@@ -266,7 +262,7 @@ export default function EventForm({ event, onClose, onSave }) {
                         className="cursor-pointer w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        Leave empty to continuously for 1 year
+                        Leave empty to create events for 1 year
                       </p>
                     </div>
 
@@ -428,7 +424,7 @@ export default function EventForm({ event, onClose, onSave }) {
                 disabled={saving}
                 className="cursor-pointer px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? 'Saving...' : event ? 'Update Event' : isRecurring ? 'Create Event' : 'Create Event'}
+                {saving ? 'Saving...' : event ? 'Update Event' : isRecurring ? 'Create Events' : 'Create Event'}
               </button>
             </div>
           </form>
