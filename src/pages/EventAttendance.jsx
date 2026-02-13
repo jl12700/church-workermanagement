@@ -38,10 +38,22 @@ export default function EventAttendance() {
   const [workers, setWorkers] = useState([]);
   const [manualWorkerSearch, setManualWorkerSearch] = useState('');
   const [showEventsPanel, setShowEventsPanel] = useState(true);
-  const [eventFilter, setEventFilter] = useState('month'); // 🔁 default = current month
+  const [eventFilter, setEventFilter] = useState('month');
   const [typeFilter, setTypeFilter] = useState('all');
   const [hasEventToday, setHasEventToday] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(new Date()); // 🗓️ used for month filter
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  
+  // NEW: Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // NEW: Manual event ending states
+  const [showEndEventModal, setShowEndEventModal] = useState(false);
+  const [endEventData, setEndEventData] = useState({
+    totalAttendees: '',
+    totalVisitors: '',
+    totalBaptized: ''
+  });
+  const [endEventErrors, setEndEventErrors] = useState({});
 
   // Event type options
   const eventTypes = [
@@ -51,79 +63,95 @@ export default function EventAttendance() {
     { value: 'meeting', label: 'Meetings', color: 'bg-orange-50 text-orange-700 border-orange-200' }
   ];
 
-  // ------------------------------------------------------------
-  //  NEW: Check if an approved event is already finished
-  // ------------------------------------------------------------
+  // Check if event is manually ended (stored in database)
+  const isEventManuallyEnded = (event) => {
+    return event?.is_ended === true;
+  };
+
+  // Check if event is finished (past end time) - for display only, not for disabling
   const isEventFinished = (event) => {
     if (!event || event.status !== 'approved') return false;
     const today = new Date().toISOString().split('T')[0];
     const eventDate = event.event_date;
 
-    // Past date → finished
     if (eventDate < today) return true;
 
-    // Today – check if current time is past end time
     if (eventDate === today && event.end_time) {
       const now = new Date();
-      const currentTime = now.toTimeString().split(' ')[0]; // HH:MM:SS
+      const currentTime = now.toTimeString().split(' ')[0];
       let endTime = event.end_time;
-      if (endTime.length === 5) endTime += ':00'; // normalise "09:00" → "09:00:00"
+      if (endTime.length === 5) endTime += ':00';
       return currentTime > endTime;
     }
     return false;
   };
 
-  // ✅ Updated scanning rule – only today & not finished
+  // NEW: Scanning rule - only today & not manually ended
   const canScanEvent = (event) => {
     if (!event || event.status !== 'approved') return false;
-    if (isEventFinished(event)) return false;
+    if (isEventManuallyEnded(event)) return false; // Check manual end instead
     const today = new Date().toISOString().split('T')[0];
     return event.event_date === today;
   };
 
-  // Calculate attendance status based on check-in time
-  const calculateAttendanceStatus = (checkInTime, eventStartTime, eventType) => {
+  // NEW: Updated attendance status calculation based on new logic
+  const calculateAttendanceStatus = (checkInTime, eventStartTime, eventPrepTime, eventDevotionTime) => {
     const checkIn = new Date(checkInTime);
     const checkInTimeOnly = checkIn.toTimeString().split(' ')[0];
     
-    if (eventType === 'sunday_service') {
-      const hour = checkIn.getHours();
-      const minute = checkIn.getMinutes();
-      const totalMinutes = hour * 60 + minute;
-      
-      if (totalMinutes >= 360 && totalMinutes < 540) {
+    // Parse times
+    const parseTime = (timeStr) => {
+      if (!timeStr) return null;
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    
+    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+    const prepMinutes = parseTime(eventPrepTime);
+    const devotionMinutes = parseTime(eventDevotionTime);
+    
+    // If prep and devotion times are available, use new logic
+    if (prepMinutes !== null && devotionMinutes !== null) {
+      // Present: scanned from prep time until devotion time
+      if (checkInMinutes >= prepMinutes && checkInMinutes <= devotionMinutes) {
         return 'present';
-      } else if (totalMinutes >= 540 && totalMinutes < 555) {
+      }
+      // Late: scanned after devotion time
+      else if (checkInMinutes > devotionMinutes) {
         return 'late';
-      } else {
-        return 'absent';
       }
     }
     
+    // Fallback to basic logic if prep/devotion times not available
     if (eventStartTime) {
       const [startHour, startMinute] = eventStartTime.split(':').map(Number);
       const startTotalMinutes = startHour * 60 + startMinute;
-      const checkInHour = checkIn.getHours();
-      const checkInMinute = checkIn.getMinutes();
-      const checkInTotalMinutes = checkInHour * 60 + checkInMinute;
       
-      if (checkInTotalMinutes <= startTotalMinutes + 15) {
+      if (checkInMinutes <= startTotalMinutes + 15) {
         return 'present';
-      } else if (checkInTotalMinutes <= startTotalMinutes + 30) {
+      } else if (checkInMinutes <= startTotalMinutes + 30) {
         return 'late';
       } else {
-        return 'absent';
+        return 'late'; // Changed from 'absent' - absent only when event ended without scan
       }
     }
     
     return 'present';
   };
 
-  // Fetch all approved events
+  // Fetch all approved events - FIXED: Now properly filters by selected month
   const fetchEvents = async () => {
     setLoading(true);
     try {
-      const { data, error } = await eventService.getAllEvents();
+      // Build date range based on selected month
+      const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).toISOString().split('T')[0];
+      const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+      
+      const { data, error } = await eventService.getAllEvents({
+        startDate: eventFilter === 'month' ? monthStart : undefined,
+        endDate: eventFilter === 'month' ? monthEnd : undefined
+      });
+      
       if (error) throw error;
       
       const today = new Date().toISOString().split('T')[0];
@@ -195,7 +223,6 @@ export default function EventAttendance() {
         filtered = filtered.filter(event => event.status === 'approved');
         break;
       case 'month':
-        // Filter by selected month
         const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).toISOString().split('T')[0];
         const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).toISOString().split('T')[0];
         filtered = filtered.filter(event => event.event_date >= monthStart && event.event_date <= monthEnd);
@@ -207,6 +234,23 @@ export default function EventAttendance() {
     
     if (typeFilter !== 'all') {
       filtered = filtered.filter(event => event.type === typeFilter);
+    }
+    
+    // NEW: Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(event => {
+        const titleMatch = event.title?.toLowerCase().includes(query);
+        const dateMatch = event.event_date?.includes(query);
+        const typeMatch = event.type?.toLowerCase().includes(query);
+        const formattedDate = new Date(event.event_date).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        }).toLowerCase().includes(query);
+        
+        return titleMatch || dateMatch || typeMatch || formattedDate;
+      });
     }
     
     return filtered;
@@ -222,7 +266,7 @@ export default function EventAttendance() {
     }
     
     if (eventForScanner && !canScanEvent(eventForScanner)) {
-      alert('Scanning is only available for today’s events that have not ended.');
+      alert('Scanning is only available for todays events that have not been manually ended.');
       return;
     }
     
@@ -264,8 +308,9 @@ export default function EventAttendance() {
       const recordsWithStatus = (data || []).map(record => {
         const status = calculateAttendanceStatus(
           record.check_in_time, 
-          event.start_time, 
-          event.type
+          event.start_time,
+          event.prep_time,
+          event.devotion_time
         );
         return { ...record, status };
       });
@@ -276,7 +321,9 @@ export default function EventAttendance() {
       const scanned = recordsWithStatus.length;
       const presentCount = recordsWithStatus.filter(r => r.status === 'present').length;
       const lateCount = recordsWithStatus.filter(r => r.status === 'late').length;
-      const absentCount = recordsWithStatus.filter(r => r.status === 'absent').length;
+      
+      // Absent count: workers who didn't scan if event is ended
+      const absentCount = isEventManuallyEnded(event) ? (totalWorkers - scanned) : 0;
       const notScanned = totalWorkers - scanned;
       
       setSummary({
@@ -349,7 +396,88 @@ export default function EventAttendance() {
     }
   };
 
-  // Export attendance to CSV
+  // NEW: Validate end event form
+  const validateEndEventForm = () => {
+    const errors = {};
+    
+    if (!endEventData.totalAttendees || endEventData.totalAttendees === '') {
+      errors.totalAttendees = 'Total attendees is required';
+    } else if (isNaN(endEventData.totalAttendees) || parseInt(endEventData.totalAttendees) < 0) {
+      errors.totalAttendees = 'Must be a valid non-negative number';
+    }
+    
+    if (!endEventData.totalVisitors || endEventData.totalVisitors === '') {
+      errors.totalVisitors = 'Total visitors is required';
+    } else if (isNaN(endEventData.totalVisitors) || parseInt(endEventData.totalVisitors) < 0) {
+      errors.totalVisitors = 'Must be a valid non-negative number';
+    }
+    
+    if (!endEventData.totalBaptized || endEventData.totalBaptized === '') {
+      errors.totalBaptized = 'Total baptized is required';
+    } else if (isNaN(endEventData.totalBaptized) || parseInt(endEventData.totalBaptized) < 0) {
+      errors.totalBaptized = 'Must be a valid non-negative number';
+    }
+    
+    setEndEventErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // NEW: Handle end event
+  const handleEndEvent = async () => {
+    if (!validateEndEventForm()) {
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('events')
+        .update({
+          is_ended: true,
+          total_attendees: parseInt(endEventData.totalAttendees),
+          total_visitors: parseInt(endEventData.totalVisitors),
+          total_baptized: parseInt(endEventData.totalBaptized),
+          ended_at: new Date().toISOString()
+        })
+        .eq('id', selectedEvent.id);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setEvents(events.map(e => 
+        e.id === selectedEvent.id 
+          ? { 
+              ...e, 
+              is_ended: true,
+              total_attendees: parseInt(endEventData.totalAttendees),
+              total_visitors: parseInt(endEventData.totalVisitors),
+              total_baptized: parseInt(endEventData.totalBaptized)
+            }
+          : e
+      ));
+      
+      setSelectedEvent({
+        ...selectedEvent,
+        is_ended: true,
+        total_attendees: parseInt(endEventData.totalAttendees),
+        total_visitors: parseInt(endEventData.totalVisitors),
+        total_baptized: parseInt(endEventData.totalBaptized)
+      });
+      
+      setShowEndEventModal(false);
+      setEndEventData({ totalAttendees: '', totalVisitors: '', totalBaptized: '' });
+      setEndEventErrors({});
+      
+      alert('Event ended successfully!');
+      
+      // Refresh attendance to update absent count
+      await fetchAttendance(selectedEvent.id);
+    } catch (error) {
+      console.error('Error ending event:', error);
+      alert('Failed to end event');
+    }
+  };
+
+  // Export attendance to CSV - MODIFIED: Allow export for ended events even without attendance
   const exportAttendance = async () => {
     try {
       if (!selectedEvent) {
@@ -362,12 +490,32 @@ export default function EventAttendance() {
         return;
       }
 
-      if (attendanceRecords.length === 0) {
-        alert('No attendance records to export');
+      // MODIFIED: Allow export if event is ended, even without attendance records
+      if (attendanceRecords.length === 0 && !isEventManuallyEnded(selectedEvent)) {
+        alert('No attendance records to export for ongoing event');
         return;
       }
 
-      const csvContent = await eventService.exportEventAttendance(selectedEvent.id);
+      // Generate CSV content
+      let csvContent;
+      
+      if (attendanceRecords.length === 0) {
+        // Export headers only with event metadata for ended events with no attendance
+        const headers = ['Name', 'Ministry', 'Check-in Time', 'Status', 'Scan Type'];
+        csvContent = headers.join(',') + '\n';
+        csvContent += '"No attendance records","N/A","N/A","N/A","N/A"\n';
+        
+        // Add event summary data
+        if (selectedEvent.total_attendees != null || selectedEvent.total_visitors != null || selectedEvent.total_baptized != null) {
+          csvContent += '\n"Event Summary"\n';
+          csvContent += `"Total Attendees","${selectedEvent.total_attendees || 0}"\n`;
+          csvContent += `"Total Visitors","${selectedEvent.total_visitors || 0}"\n`;
+          csvContent += `"Total Baptized","${selectedEvent.total_baptized || 0}"\n`;
+        }
+      } else {
+        // Normal export with attendance records
+        csvContent = await eventService.exportEventAttendance(selectedEvent.id);
+      }
       
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
@@ -415,7 +563,7 @@ export default function EventAttendance() {
       
       return dateA < new Date(today) ? 1 : -1;
     });
-  }, [events, eventFilter, typeFilter]);
+  }, [events, eventFilter, typeFilter, searchQuery, selectedMonth]);
 
   // Get event type display
   const getEventTypeDisplay = (type) => {
@@ -442,6 +590,11 @@ export default function EventAttendance() {
     fetchEvents();
     fetchWorkers();
   }, []);
+
+  // FIXED: Refetch when selectedMonth or eventFilter changes
+  useEffect(() => {
+    fetchEvents();
+  }, [selectedMonth, eventFilter]);
 
   // Real-time attendance updates
   useEffect(() => {
@@ -476,9 +629,7 @@ export default function EventAttendance() {
   return (
     <SidebarLayout>
       <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-        {/* -------------------------------------------------------- */}
-        {/* 🚀 HEADER – with compact month picker (native input)    */}
-        {/* -------------------------------------------------------- */}
+        {/* Header */}
         <div className="mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
@@ -490,7 +641,7 @@ export default function EventAttendance() {
               </p>
             </div>
             
-            {/* 🗓️ Compact month picker – industry standard, mobile friendly */}
+            {/* Compact month picker */}
             <div className="flex items-center gap-2">
               <input
                 type="month"
@@ -500,7 +651,7 @@ export default function EventAttendance() {
                 onChange={(e) => {
                   const [year, month] = e.target.value.split('-').map(Number);
                   setSelectedMonth(new Date(year, month - 1, 1));
-                  setEventFilter('month'); // activate month filtering
+                  setEventFilter('month');
                 }}
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
@@ -533,6 +684,28 @@ export default function EventAttendance() {
             <div className="bg-white border border-gray-200 rounded-lg">
               {/* Filters */}
               <div className="p-4 border-b border-gray-200">
+                {/* NEW: Search Input */}
+                <div className="mb-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search events by name, date, or type..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -587,14 +760,14 @@ export default function EventAttendance() {
                   <div className="text-center py-12">
                     <Calendar className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                     <p className="text-sm font-medium text-gray-500">No events found</p>
-                    <p className="text-xs text-gray-400 mt-1">Try changing your filters</p>
+                    <p className="text-xs text-gray-400 mt-1">Try changing your filters or search</p>
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[600px] overflow-y-auto">
                     {sortedFilteredEvents.map(event => {
                       const isApproved = event.status === 'approved';
                       const isToday = event.event_date === new Date().toISOString().split('T')[0];
-                      const finished = isEventFinished(event); // ✅ finished check
+                      const manuallyEnded = isEventManuallyEnded(event);
                       const canScan = canScanEvent(event);
                       const eventType = eventTypes.find(t => t.value === event.type) || eventTypes[0];
                       
@@ -623,8 +796,7 @@ export default function EventAttendance() {
                                   Pending Approval
                                 </span>
                               )}
-                              {/* 🆕 Finished event badge */}
-                              {finished && (
+                              {manuallyEnded && (
                                 <span className="inline-flex items-center gap-1 text-xs text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-300 ml-2">
                                   Ended
                                 </span>
@@ -696,15 +868,14 @@ export default function EventAttendance() {
                               }`}
                               title={
                                 !canScan
-                                  ? finished
+                                  ? manuallyEnded
                                     ? 'Event ended'
                                     : 'Scanning only available for today\'s events'
                                   : 'Scan attendance'
                               }
                             >
                               <ScanLine className="w-3.5 h-3.5" />
-                              {/* Show "Event Ended" text when finished */}
-                              {finished ? 'Ended' : 'Scan'}
+                              {manuallyEnded ? 'Ended' : 'Scan'}
                             </button>
                           </div>
                         </div>
@@ -734,8 +905,7 @@ export default function EventAttendance() {
                             Pending Approval
                           </span>
                         )}
-                        {/* 🆕 Finished badge in detail view */}
-                        {isEventFinished(selectedEvent) && (
+                        {isEventManuallyEnded(selectedEvent) && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-800 rounded border border-gray-300">
                             Ended
                           </span>
@@ -777,6 +947,17 @@ export default function EventAttendance() {
                     </div>
                     
                     <div className="flex flex-wrap gap-2">
+                      {/* NEW: End Event Button */}
+                      {canScanEvent(selectedEvent) && !isEventManuallyEnded(selectedEvent) && (
+                        <button
+                          onClick={() => setShowEndEventModal(true)}
+                          className="px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          <X className="w-4 h-4" />
+                          End Event
+                        </button>
+                      )}
+                      
                       <button
                         onClick={() => openScanner(selectedEvent)}
                         disabled={!canScanEvent(selectedEvent)}
@@ -787,25 +968,29 @@ export default function EventAttendance() {
                         }`}
                         title={
                           !canScanEvent(selectedEvent)
-                            ? isEventFinished(selectedEvent)
+                            ? isEventManuallyEnded(selectedEvent)
                               ? 'Event ended'
                               : 'Scanning only available for today\'s events'
                             : 'Scan QR codes'
                         }
                       >
                         <ScanLine className="w-4 h-4" />
-                        {isEventFinished(selectedEvent) ? 'Event Ended' : 'Scan QR'}
+                        {isEventManuallyEnded(selectedEvent) ? 'Event Ended' : 'Scan QR'}
                       </button>
                       
                       <button
                         onClick={exportAttendance}
-                        disabled={selectedEvent.status !== 'approved' || attendanceRecords.length === 0}
+                        disabled={selectedEvent.status !== 'approved' || (!isEventManuallyEnded(selectedEvent) && attendanceRecords.length === 0)}
                         className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                          selectedEvent.status === 'approved' && attendanceRecords.length > 0
+                          selectedEvent.status === 'approved' && (attendanceRecords.length > 0 || isEventManuallyEnded(selectedEvent))
                             ? 'bg-blue-600 hover:bg-blue-700 text-white'
                             : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         }`}
-                        title={attendanceRecords.length === 0 ? 'No attendance records to export' : 'Export to CSV'}
+                        title={
+                          attendanceRecords.length === 0 && !isEventManuallyEnded(selectedEvent)
+                            ? 'Export available after event ends'
+                            : 'Export to CSV'
+                        }
                       >
                         <Download className="w-4 h-4" />
                         Export CSV
@@ -870,7 +1055,7 @@ export default function EventAttendance() {
                   </div>
                 </div>
 
-                {/* Manual Entry Section – only if scanning is allowed */}
+                {/* Manual Entry Section */}
                 {canScanEvent(selectedEvent) ? (
                   <div className="bg-white border border-gray-200 rounded-lg">
                     <details className="group">
@@ -927,13 +1112,12 @@ export default function EventAttendance() {
                       This event is awaiting admin approval. Attendance features will be available once approved.
                     </p>
                   </div>
-                ) : isEventFinished(selectedEvent) ? (
-                  // 🆕 Explicit "Event Ended" state
+                ) : isEventManuallyEnded(selectedEvent) ? (
                   <div className="bg-gray-100 border border-gray-300 rounded-lg p-5 text-center">
                     <Calendar className="w-10 h-10 mx-auto text-gray-500 mb-2" />
                     <h3 className="text-sm font-medium text-gray-900 mb-1">Event Ended</h3>
                     <p className="text-sm text-gray-600">
-                      This event has finished. Scanning is no longer available.
+                      This event has been manually ended. Scanning is no longer available.
                     </p>
                   </div>
                 ) : (
@@ -1080,6 +1264,102 @@ export default function EventAttendance() {
           </div>
         </div>
       </div>
+
+      {/* NEW: End Event Modal */}
+      {showEndEventModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">End Event</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Please provide the following information before ending the event:
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Number of Attendees <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={endEventData.totalAttendees}
+                  onChange={(e) => setEndEventData({ ...endEventData, totalAttendees: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
+                    endEventErrors.totalAttendees 
+                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
+                  placeholder="Enter total attendees"
+                />
+                {endEventErrors.totalAttendees && (
+                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalAttendees}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Number of Visitors <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={endEventData.totalVisitors}
+                  onChange={(e) => setEndEventData({ ...endEventData, totalVisitors: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
+                    endEventErrors.totalVisitors 
+                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
+                  placeholder="Enter total visitors"
+                />
+                {endEventErrors.totalVisitors && (
+                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalVisitors}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Total Number of Baptized <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={endEventData.totalBaptized}
+                  onChange={(e) => setEndEventData({ ...endEventData, totalBaptized: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
+                    endEventErrors.totalBaptized 
+                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
+                  placeholder="Enter total baptized"
+                />
+                {endEventErrors.totalBaptized && (
+                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalBaptized}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEndEventModal(false);
+                  setEndEventData({ totalAttendees: '', totalVisitors: '', totalBaptized: '' });
+                  setEndEventErrors({});
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEndEvent}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors"
+              >
+                End Event
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </SidebarLayout>
   );
 }

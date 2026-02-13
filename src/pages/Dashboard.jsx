@@ -230,12 +230,14 @@ const Dashboard = () => {
       const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const lastDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
       
+      // FILTER: Exclude sunday_service events from dashboard calendar display
       const { data: monthEvents } = await supabase
         .from('events')
         .select('*')
         .gte('event_date', firstDayOfMonth.toISOString().split('T')[0])
         .lte('event_date', lastDayOfMonth.toISOString().split('T')[0])
         .eq('status', 'approved')
+        .neq('type', 'sunday_service')
         .order('event_date', { ascending: true });
 
       const formattedEvents = (monthEvents || []).map(event => ({
@@ -479,7 +481,6 @@ const Dashboard = () => {
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-gray-600 mt-2">
-                Monitor worker activities, attendance, and performance metrics
               </p>
             </div>
             <div className="flex items-center gap-3">

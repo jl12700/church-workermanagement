@@ -114,10 +114,10 @@ export default function Reports() {
   const [ministries, setMinistries] = useState([]);
   
   // Sorting state
-  const [sortOrder, setSortOrder] = useState('desc'); // 'desc' = latest first, 'asc' = oldest first
+  const [sortOrder, setSortOrder] = useState('desc');
 
   // ========================================
-  // DATA FETCHING (unchanged)
+  // DATA FETCHING
   // ========================================
   
   const fetchWorkers = async () => {
@@ -199,7 +199,12 @@ export default function Reports() {
             absent: totalAbsent,
             scanned: scannedCount,
             attendanceRate: parseFloat(attendanceRate.toFixed(1)),
-            attendanceRecords: attendance || []
+            attendanceRecords: attendance || [],
+            // NEW: Manual event ending data
+            totalAttendees: event.total_attendees,
+            totalVisitors: event.total_visitors,
+            totalBaptized: event.total_baptized,
+            isEnded: event.is_ended
           };
         })
       );
@@ -260,7 +265,12 @@ export default function Reports() {
             scanned: scannedCount,
             pending,
             attendanceRate: parseFloat(attendanceRate.toFixed(1)),
-            attendanceRecords: attendance || []
+            attendanceRecords: attendance || [],
+            // NEW: Manual event ending data
+            totalAttendees: event.total_attendees,
+            totalVisitors: event.total_visitors,
+            totalBaptized: event.total_baptized,
+            isEnded: event.is_ended
           };
         })
       );
@@ -362,7 +372,7 @@ export default function Reports() {
   };
 
   // ========================================
-  // EXPORT FUNCTIONS (unchanged)
+  // EXPORT FUNCTIONS - MODIFIED
   // ========================================
   
   const exportToCSV = (report, details) => {
@@ -370,21 +380,61 @@ export default function Reports() {
     
     try {
       const headers = ['Name', 'Ministry', 'Check-in Time', 'Status', 'Event Date'];
+      
+      // NEW: Add manual event data headers if available
+      if (report.isEnded && (report.totalAttendees != null || report.totalVisitors != null || report.totalBaptized != null)) {
+        headers.push('Total Attendees', 'Total Visitors', 'Total Baptized');
+      }
+      
       const rows = [headers.join(',')];
       
-      details.forEach(record => {
+      // MODIFIED: Handle case when there are no attendance records but event is ended
+      if (details.length === 0 && report.isEnded) {
         const row = [
-          `"${record.workerName}"`,
-          `"${record.ministry}"`,
-          `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit'
-          })}"`,
-          `"${record.status.label}"`,
+          '"No attendance records"',
+          '"N/A"',
+          '"N/A"',
+          '"N/A"',
           `"${report.formattedDate}"`
         ];
+        
+        // Add manual event data
+        if (report.isEnded && (report.totalAttendees != null || report.totalVisitors != null || report.totalBaptized != null)) {
+          row.push(
+            report.totalAttendees != null ? report.totalAttendees : 'N/A',
+            report.totalVisitors != null ? report.totalVisitors : 'N/A',
+            report.totalBaptized != null ? report.totalBaptized : 'N/A'
+          );
+        }
+        
         rows.push(row.join(','));
-      });
+      } else {
+        details.forEach((record, index) => {
+          const row = [
+            `"${record.workerName}"`,
+            `"${record.ministry}"`,
+            `"${new Date(record.check_in_time).toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            })}"`,
+            `"${record.status.label}"`,
+            `"${report.formattedDate}"`
+          ];
+          
+          // NEW: Add manual event data only on first row
+          if (index === 0 && report.isEnded && (report.totalAttendees != null || report.totalVisitors != null || report.totalBaptized != null)) {
+            row.push(
+              report.totalAttendees != null ? report.totalAttendees : 'N/A',
+              report.totalVisitors != null ? report.totalVisitors : 'N/A',
+              report.totalBaptized != null ? report.totalBaptized : 'N/A'
+            );
+          } else if (report.isEnded && (report.totalAttendees != null || report.totalVisitors != null || report.totalBaptized != null)) {
+            row.push('', '', ''); // Empty cells for subsequent rows
+          }
+          
+          rows.push(row.join(','));
+        });
+      }
       
       const csvContent = rows.join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -444,12 +494,10 @@ export default function Reports() {
   // FILTERING & SORTING
   // ========================================
   
-  // Toggle sort order
   const toggleSort = () => {
     setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc');
   };
   
-  // Filtered and sorted reports
   const filteredReports = useMemo(() => {
     let reports = viewMode === 'sunday' ? sundayReports : eventReports;
     
@@ -465,7 +513,6 @@ export default function Reports() {
       );
     }
     
-    // Sort by date
     return [...reports].sort((a, b) => {
       const dateA = new Date(a.date);
       const dateB = new Date(b.date);
@@ -492,7 +539,7 @@ export default function Reports() {
   }, [lateWorkers, ministryFilter, searchTerm]);
 
   // ========================================
-  // EFFECTS (unchanged)
+  // EFFECTS
   // ========================================
   
   useEffect(() => {
@@ -516,7 +563,7 @@ export default function Reports() {
   }, [viewMode, dateRange, allWorkers]);
 
   // ========================================
-  // RENDER — enhanced with depth, compact dates, sorting
+  // RENDER
   // ========================================
   
   return (
@@ -564,10 +611,9 @@ export default function Reports() {
           </nav>
         </div>
 
-        {/* Filters — compact, with shadow and border */}
+        {/* Filters */}
         <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-6 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-end gap-4">
-            {/* Date range — reduced width */}
             <div className="flex flex-col w-full md:w-auto md:max-w-[160px]">
               <label className="text-xs font-medium text-gray-500 mb-1">Start Date</label>
               <input
@@ -587,7 +633,6 @@ export default function Reports() {
               />
             </div>
 
-            {/* Event Type Filter (events view) */}
             {viewMode === 'events' && (
               <div className="flex flex-col w-full md:w-auto md:min-w-[160px]">
                 <label className="text-xs font-medium text-gray-500 mb-1">Event Type</label>
@@ -607,7 +652,6 @@ export default function Reports() {
               </div>
             )}
 
-            {/* Ministry Filter (late workers view) */}
             {viewMode === 'late' && (
               <div className="flex flex-col w-full md:w-auto md:min-w-[160px]">
                 <label className="text-xs font-medium text-gray-500 mb-1">Ministry</label>
@@ -624,7 +668,6 @@ export default function Reports() {
               </div>
             )}
 
-            {/* Search */}
             <div className="flex flex-col flex-1 min-w-[200px]">
               <label className="text-xs font-medium text-gray-500 mb-1">Search</label>
               <div className="relative">
@@ -633,7 +676,7 @@ export default function Reports() {
                   placeholder="Search..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className=" border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 />
                 {searchTerm && (
                   <button
@@ -655,13 +698,12 @@ export default function Reports() {
           </div>
         ) : (
           <>
-            {/* SUNDAY & EVENT REPORTS — table with sortable date */}
+            {/* SUNDAY & EVENT REPORTS */}
             {(viewMode === 'sunday' || viewMode === 'events') && (
               <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
                 <table className="min-w-full divide-y divide-gray-200 text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      {/* Date column with sort toggle */}
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         <button
                           onClick={toggleSort}
@@ -693,6 +735,10 @@ export default function Reports() {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pending</th>
                         </>
                       )}
+                      {/* NEW: Manual event data columns */}
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attendees</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitors</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Baptized</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -700,14 +746,13 @@ export default function Reports() {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredReports.length === 0 ? (
                       <tr>
-                        <td colSpan={viewMode === 'sunday' ? 9 : 10} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={viewMode === 'sunday' ? 12 : 13} className="px-4 py-8 text-center text-gray-500">
                           No reports found for the selected criteria.
                         </td>
                       </tr>
                     ) : (
                       filteredReports.map((report) => (
                         <>
-                          {/* Main report row */}
                           <tr key={report.id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 whitespace-nowrap text-gray-900">
                               {report.shortDate}
@@ -736,6 +781,16 @@ export default function Reports() {
                                 <td className="px-4 py-3 whitespace-nowrap text-gray-700">{report.pending}</td>
                               </>
                             )}
+                            {/* NEW: Display manual event data */}
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">
+                              {report.totalAttendees != null ? report.totalAttendees : '-'}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">
+                              {report.totalVisitors != null ? report.totalVisitors : '-'}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-gray-700">
+                              {report.totalBaptized != null ? report.totalBaptized : '-'}
+                            </td>
                             <td className="px-4 py-3 whitespace-nowrap">
                               <span className={`px-2 py-1 text-xs font-medium rounded-md ${
                                 report.attendanceRate >= 70 ? 'bg-green-50 text-green-700' :
@@ -745,33 +800,36 @@ export default function Reports() {
                                 {report.attendanceRate}%
                               </span>
                             </td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => loadAttendanceDetails(report)}
-                                  className="text-xs text-gray-600 hover:text-gray-900 border border-gray-300 px-2 py-1 rounded-md bg-white hover:bg-gray-50 shadow-sm"
-                                >
-                                  {selectedReport?.id === report.id ? 'Hide' : 'View'}
-                                </button>
-                                <ExportButton
-                                  onClick={() => exportToCSV(report, report.attendanceRecords.map(r => ({
-                                    ...r,
-                                    workerName: r.worker?.name || 'Unknown',
-                                    ministry: r.worker?.ministry || 'N/A',
-                                    status: calculateAttendanceStatus(r.check_in_time, report.startTime, report.type || 'sunday_service')
-                                  })))}
-                                  loading={exporting}
-                                  disabled={report.attendanceRecords.length === 0}
-                                >
-                                  Export
-                                </ExportButton>
-                              </div>
-                            </td>
+<td className="px-4 py-3 whitespace-nowrap">
+  <div className="flex items-center gap-2">
+    <button
+      onClick={() => loadAttendanceDetails(report)}
+      className="cursor-pointer text-xs text-white border border-gray-300 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 shadow-sm min-w-[60px] text-center font-medium transition-colors"
+    >
+      {selectedReport?.id === report.id ? 'Hide' : 'View'}
+    </button>
+    <button
+      onClick={() => !exporting && !(!report.isEnded && report.attendanceRecords.length === 0) && exportToCSV(report, report.attendanceRecords.map(r => ({
+        ...r,
+        workerName: r.worker?.name || 'Unknown',
+        ministry: r.worker?.ministry || 'N/A',
+        status: calculateAttendanceStatus(r.check_in_time, report.startTime, report.type || 'sunday_service')
+      })))}
+      disabled={exporting || (!report.isEnded && report.attendanceRecords.length === 0)}
+      className={`text-xs text-white border border-gray-300 px-3 py-1.5 rounded-md shadow-sm min-w-[60px] text-center font-medium transition-colors ${
+        exporting || (!report.isEnded && report.attendanceRecords.length === 0)
+          ? 'bg-gray-400 cursor-not-allowed hover:bg-gray-400'
+          : 'cursor-pointer bg-green-800 hover:bg-green-700'
+      }`}
+    >
+      {exporting ? '...' : 'Export CSV'}
+    </button>
+  </div>
+</td>
                           </tr>
-                          {/* Expanded attendance details row */}
                           {selectedReport?.id === report.id && (
                             <tr className="bg-gray-50">
-                              <td colSpan={viewMode === 'sunday' ? 9 : 10} className="px-4 py-4">
+                              <td colSpan={viewMode === 'sunday' ? 12 : 13} className="px-4 py-4">
                                 <div className="bg-white border border-gray-200 rounded-md overflow-hidden shadow-sm">
                                   <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                                     <h4 className="text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -839,7 +897,7 @@ export default function Reports() {
               </div>
             )}
 
-            {/* LATE WORKERS REPORT — table with depth */}
+            {/* LATE WORKERS REPORT */}
             {viewMode === 'late' && (
               <div className="border border-gray-200 rounded-md overflow-hidden shadow-sm">
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">

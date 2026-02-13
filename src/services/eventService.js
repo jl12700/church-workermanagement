@@ -1,7 +1,7 @@
 // ============================================================================
-// EVENT SERVICE - MERGED VERSION
+// EVENT SERVICE - UPDATED VERSION
 // ============================================================================
-// Combines your existing functionality with attendance sync improvements
+// Enhanced with manual event ending support and new attendance fields
 // ============================================================================
 
 import { supabase } from './supabase';
@@ -171,13 +171,32 @@ export const eventService = {
       .eq('id', eventId);
   },
 
+  /**
+   * NEW: Manually end an event with attendance summary
+   */
+  async endEvent(eventId, summaryData) {
+    return await supabase
+      .from('events')
+      .update({
+        is_ended: true,
+        total_attendees: summaryData.totalAttendees,
+        total_visitors: summaryData.totalVisitors,
+        total_baptized: summaryData.totalBaptized,
+        ended_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', eventId)
+      .select()
+      .single();
+  },
+
   // =========================================================================
-  // ATTENDANCE OPERATIONS - UPDATED FOR DATABASE SYNC
+  // ATTENDANCE OPERATIONS - UPDATED FOR NEW STATUS LOGIC
   // =========================================================================
   
   /**
    * Record attendance for an event
-   * UPDATED: Database trigger now automatically calculates attendance_status
+   * Updated to support new prep_time and devotion_time fields
    */
   async recordAttendance(eventId, workerId, scanType = 'qr', options = {}) {
     try {
@@ -197,7 +216,6 @@ export const eventService = {
       }
       
       // Record attendance
-      // The database trigger will automatically calculate attendance_status
       const { data, error } = await supabase
         .from('event_attendance')
         .insert([{
@@ -225,7 +243,6 @@ export const eventService = {
 
   /**
    * Get event attendance records
-   * UPDATED: Now includes database-computed attendance_status
    */
   async getEventAttendance(eventId) {
     return await supabase
@@ -233,7 +250,7 @@ export const eventService = {
       .select(`
         *,
         worker:workers(id, name, ministry, email, contact),
-        event:events(id, title, type, event_date, start_time, end_time)
+        event:events(id, title, type, event_date, start_time, end_time, prep_time, devotion_time)
       `)
       .eq('event_id', eventId)
       .order('check_in_time', { ascending: false });
@@ -241,7 +258,6 @@ export const eventService = {
 
   /**
    * Get attendance using the status view
-   * UPDATED: Now uses database-computed status from the view
    */
   async getEventAttendanceWithStatus(eventId) {
     return await supabase
@@ -253,7 +269,6 @@ export const eventService = {
 
   /**
    * Get attendance by view with filters
-   * UPDATED: For worker logs - uses database-computed status
    */
   async getAttendanceByView(filters = {}) {
     let query = supabase
@@ -287,7 +302,6 @@ export const eventService = {
 
   /**
    * Update attendance check-in time
-   * UPDATED: Database trigger will recalculate status automatically
    */
   async updateAttendanceTime(attendanceId, newCheckInTime) {
     const { data, error } = await supabase
@@ -339,7 +353,6 @@ export const eventService = {
   /**
    * Get worker's monthly attendance
    * Returns map of date -> attendance data
-   * UPDATED: Uses database-computed status
    */
   async getWorkerMonthlyAttendance(workerId, year, month) {
     const startDate = new Date(year, month - 1, 1);
@@ -370,7 +383,7 @@ export const eventService = {
         eventId: record.event_id,
         eventTitle: record.event_title,
         eventType: record.event_type,
-        status: record.status || 'present', // Database-computed status
+        status: record.status || 'present',
         checkInTime: record.check_in_time,
         startTime: record.start_time,
         endTime: record.end_time
@@ -382,7 +395,6 @@ export const eventService = {
 
   /**
    * Get event summary statistics
-   * UPDATED: Uses database-computed status
    */
   async getEventSummary(eventId) {
     // Try to use RPC first (if available)
@@ -392,7 +404,7 @@ export const eventService = {
     if (error) {
       console.warn('RPC get_event_attendance_summary failed, calculating manually:', error.message);
       
-      // Fallback: Calculate manually using database-computed status
+      // Fallback: Calculate manually
       const { data: attendance } = await this.getEventAttendanceWithStatus(eventId);
       
       const presentCount = attendance?.filter(a => a.status === 'present').length || 0;
@@ -415,7 +427,6 @@ export const eventService = {
 
   /**
    * Get attendance summary for an event
-   * UPDATED: Uses database-computed attendance_status
    */
   async getEventAttendanceSummary(eventId) {
     try {
@@ -450,29 +461,48 @@ export const eventService = {
   },
 
   /**
-   * Calculate attendance status based on check-in time
-   * DEPRECATED: Client-side helper kept for backward compatibility
-   * NOTE: The database now calculates this automatically via trigger
+   * NEW: Calculate attendance status based on prep/devotion times
+   * This is client-side logic that matches the new requirements
    */
-  calculateStatus(checkInTime, startTime, endTime) {
-    const checkIn = new Date(`2000-01-01T${checkInTime}`);
-    const start = new Date(`2000-01-01T${startTime}`);
-    const end = new Date(`2000-01-01T${endTime}`);
+  calculateAttendanceStatus(checkInTime, prepTime, devotionTime, startTime) {
+    const checkIn = new Date(checkInTime);
+    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
     
-    const lateThreshold = new Date(start.getTime() + 30 * 60 * 1000);
+    const parseTime = (timeStr) => {
+      if (!timeStr) return null;
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
     
-    if (checkIn < lateThreshold) {
-      return 'present';
-    } else if (checkIn < end) {
-      return 'late';
-    } else {
-      return 'absent';
+    const prepMinutes = parseTime(prepTime);
+    const devotionMinutes = parseTime(devotionTime);
+    
+    // New logic: Present if between prep and devotion time
+    if (prepMinutes !== null && devotionMinutes !== null) {
+      if (checkInMinutes >= prepMinutes && checkInMinutes <= devotionMinutes) {
+        return 'present';
+      } else if (checkInMinutes > devotionMinutes) {
+        return 'late';
+      }
     }
+    
+    // Fallback to basic logic
+    if (startTime) {
+      const startMinutes = parseTime(startTime);
+      if (startMinutes !== null) {
+        if (checkInMinutes <= startMinutes + 15) {
+          return 'present';
+        } else {
+          return 'late';
+        }
+      }
+    }
+    
+    return 'present';
   },
 
   /**
    * Export event attendance to CSV
-   * UPDATED: Uses database-computed status
    */
   async exportEventAttendance(eventId) {
     const { data, error } = await this.getEventAttendanceWithStatus(eventId);

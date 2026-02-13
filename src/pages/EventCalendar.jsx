@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, User, Edit, Trash2, CheckCircle, AlertCircle, Check, XCircle } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, X, Clock, MapPin, User, Edit, Trash2, CheckCircle, AlertCircle, Check, XCircle, Search } from 'lucide-react';
 import EventForm from './EventForm';
 import EventDetailsModal from './EventDetailsModal';
 import { eventService } from '../database/supabaseEvents';
@@ -16,10 +16,20 @@ const EventCalendar = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [successType, setSuccessType] = useState('success');
   const [updatingEventId, setUpdatingEventId] = useState(null);
+  
+  // Pending Approval Pagination & Search
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
+  const [pendingCurrentPage, setPendingCurrentPage] = useState(1);
+  const [pendingPageSize] = useState(5);
 
   useEffect(() => {
     loadEvents();
   }, [currentDate]);
+
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setPendingCurrentPage(1);
+  }, [pendingSearchQuery]);
 
   const loadEvents = async () => {
     setLoading(true);
@@ -52,6 +62,49 @@ const EventCalendar = () => {
     return events
       .filter(event => event.status === 'proposed')
       .sort((a, b) => new Date(a.event_date) - new Date(b.event_date));
+  };
+
+  // Filter proposed events based on search query
+  const getFilteredProposedEvents = () => {
+    const proposedEvents = getProposedEvents();
+    
+    if (!pendingSearchQuery.trim()) {
+      return proposedEvents;
+    }
+
+    const query = pendingSearchQuery.toLowerCase().trim();
+    
+    return proposedEvents.filter(event => {
+      // Search by event name
+      const titleMatch = event.title?.toLowerCase().includes(query);
+      
+      // Search by date (format: YYYY-MM-DD or various date formats)
+      const dateMatch = event.event_date?.includes(query) || 
+        new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US').toLowerCase().includes(query) ||
+        new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US', { 
+          month: 'short', day: 'numeric', year: 'numeric' 
+        }).toLowerCase().includes(query);
+      
+      // Search by created_by field (if available)
+      const createdByMatch = event.created_by?.toLowerCase().includes(query);
+      
+      return titleMatch || dateMatch || createdByMatch;
+    });
+  };
+
+  // Get paginated proposed events
+  const getPaginatedProposedEvents = () => {
+    const filteredEvents = getFilteredProposedEvents();
+    const startIndex = (pendingCurrentPage - 1) * pendingPageSize;
+    const endIndex = startIndex + pendingPageSize;
+    
+    return {
+      events: filteredEvents.slice(startIndex, endIndex),
+      totalCount: filteredEvents.length,
+      totalPages: Math.ceil(filteredEvents.length / pendingPageSize),
+      hasNextPage: endIndex < filteredEvents.length,
+      hasPrevPage: pendingCurrentPage > 1
+    };
   };
 
   const { daysInMonth, startingDayOfWeek } = getDaysInMonth(currentDate);
@@ -165,6 +218,7 @@ const EventCalendar = () => {
   };
 
   const proposedEvents = getProposedEvents();
+  const paginatedData = getPaginatedProposedEvents();
 
   return (
     <SidebarLayout>
@@ -345,7 +399,7 @@ const EventCalendar = () => {
               )}
             </div>
 
-            {/* Sidebar - Proposed Events */}
+            {/* Sidebar - Proposed Events with Search and Pagination */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 sticky top-6">
                 <div className="flex items-center justify-between mb-4">
@@ -357,98 +411,164 @@ const EventCalendar = () => {
                   </span>
                 </div>
 
-                {proposedEvents.length > 0 ? (
-                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                    {proposedEvents.map(event => (
-                      <div
-                        key={event.id}
-                        className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 transition-all hover:shadow-md"
+                {/* Search Input */}
+                <div className="mb-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search by name, date, or creator..."
+                      value={pendingSearchQuery}
+                      onChange={(e) => setPendingSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    {pendingSearchQuery && (
+                      <button
+                        onClick={() => setPendingSearchQuery('')}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 
-                            className="font-semibold text-sm text-slate-900 cursor-pointer hover:text-blue-600 flex-1 pr-2"
-                            onClick={() => handleEventClick(event)}
-                          >
-                            {event.title}
-                          </h4>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500 text-white uppercase whitespace-nowrap">
-                            Proposed
-                          </span>
-                        </div>
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                        <div className="space-y-1 mb-3">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            <p className="text-xs text-slate-600">
-                              {new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US', {
-                                month: 'short', day: 'numeric', year: 'numeric'
-                              })}
-                            </p>
+                {paginatedData.totalCount > 0 ? (
+                  <>
+                    <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                      {paginatedData.events.map(event => (
+                        <div
+                          key={event.id}
+                          className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 transition-all hover:shadow-md"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 
+                              className="font-semibold text-sm text-slate-900 cursor-pointer hover:text-blue-600 flex-1 pr-2"
+                              onClick={() => handleEventClick(event)}
+                            >
+                              {event.title}
+                            </h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-yellow-500 text-white uppercase whitespace-nowrap">
+                              Proposed
+                            </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 text-slate-400" />
-                            <p className="text-xs text-slate-600">
-                              {event.start_time} - {event.end_time}
-                            </p>
-                          </div>
-                          {event.place && (
+
+                          <div className="space-y-1 mb-3">
                             <div className="flex items-center gap-2">
-                              <MapPin className="w-3 h-3 text-slate-400" />
-                              <p className="text-xs text-slate-600 truncate">
-                                {event.place}
+                              <Calendar className="w-3 h-3 text-slate-400" />
+                              <p className="text-xs text-slate-600">
+                                {new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US', {
+                                  month: 'short', day: 'numeric', year: 'numeric'
+                                })}
                               </p>
                             </div>
-                          )}
-                        </div>
-
-                        {/* Quick Action Buttons */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => handleQuickStatusUpdate(event.id, 'approved')}
-                            disabled={updatingEventId === event.id}
-                            className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {updatingEventId === event.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
-                              </>
-                            ) : (
-                              <>
-                                <Check className="w-3 h-3" />
-                                Approve
-                              </>
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              <p className="text-xs text-slate-600">
+                                {event.start_time} - {event.end_time}
+                              </p>
+                            </div>
+                            {event.place && (
+                              <div className="flex items-center gap-2">
+                                <MapPin className="w-3 h-3 text-slate-400" />
+                                <p className="text-xs text-slate-600 truncate">
+                                  {event.place}
+                                </p>
+                              </div>
                             )}
+                            {event.created_by && (
+                              <div className="flex items-center gap-2">
+                                <User className="w-3 h-3 text-slate-400" />
+                                <p className="text-xs text-slate-600 truncate">
+                                  By: {event.created_by}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Quick Action Buttons */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => handleQuickStatusUpdate(event.id, 'approved')}
+                              disabled={updatingEventId === event.id}
+                              className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {updatingEventId === event.id ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  Approve
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleQuickStatusUpdate(event.id, 'declined')}
+                              disabled={updatingEventId === event.id}
+                              className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {updatingEventId === event.id ? (
+                                <>
+                                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle className="w-3 h-3" />
+                                  Decline
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {paginatedData.totalPages > 1 && (
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <div className="flex items-center justify-between text-xs text-slate-600 mb-2">
+                          <span>
+                            Showing {((pendingCurrentPage - 1) * pendingPageSize) + 1} - {Math.min(pendingCurrentPage * pendingPageSize, paginatedData.totalCount)} of {paginatedData.totalCount}
+                          </span>
+                          <span>
+                            Page {pendingCurrentPage} of {paginatedData.totalPages}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setPendingCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={!paginatedData.hasPrevPage}
+                            className="flex-1 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            Previous
                           </button>
                           <button
-                            onClick={() => handleQuickStatusUpdate(event.id, 'declined')}
-                            disabled={updatingEventId === event.id}
-                            className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={() => setPendingCurrentPage(prev => Math.min(paginatedData.totalPages, prev + 1))}
+                            disabled={!paginatedData.hasNextPage}
+                            className="flex-1 px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                           >
-                            {updatingEventId === event.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white" />
-                              </>
-                            ) : (
-                              <>
-                                <XCircle className="w-3 h-3" />
-                                Decline
-                              </>
-                            )}
+                            Next
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
                 ) : (
                   <div className="text-center py-8">
                     <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <CheckCircle className="w-6 h-6 text-gray-400" />
+                      {pendingSearchQuery ? (
+                        <Search className="w-6 h-6 text-gray-400" />
+                      ) : (
+                        <CheckCircle className="w-6 h-6 text-gray-400" />
+                      )}
                     </div>
                     <p className="text-slate-500 text-sm">
-                      No pending events
+                      {pendingSearchQuery ? 'No matching events found' : 'No pending events'}
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
-                      All events have been reviewed
+                      {pendingSearchQuery ? 'Try a different search term' : 'All events have been reviewed'}
                     </p>
                   </div>
                 )}

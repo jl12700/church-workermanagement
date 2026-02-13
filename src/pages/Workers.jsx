@@ -226,14 +226,14 @@ export default function Workers() {
   };
 
   const setEmailToNA = () => {
-    setFormData(prev => ({ ...prev, email: 'N/A' }));
+    setFormData(prev => ({ ...prev, email: '' }));
     if (formErrors.email) {
       setFormErrors(prev => ({ ...prev, email: '' }));
     }
   };
 
   const setEditEmailToNA = () => {
-    setEditData(prev => ({ ...prev, email: 'N/A' }));
+    setEditData(prev => ({ ...prev, email: '' }));
   };
 
   const handleEditFormChange = (e) => {
@@ -371,7 +371,9 @@ export default function Workers() {
         gender: formData.gender,
         date_of_birth: formData.date_of_birth || null,
         present_address: formData.present_address,
-        email: formData.email || null,
+        email: (formData.email && formData.email !== 'N/A' && formData.email.trim()) 
+  ? formData.email 
+  : null,
         educational_background: formData.educational_background,
         occupation: formData.occupation,
         civil_status: formData.civil_status,
@@ -459,7 +461,9 @@ export default function Workers() {
         gender: editData.gender,
         date_of_birth: editData.date_of_birth || null,
         present_address: editData.present_address,
-        email: editData.email || null,
+        email: (editData.email && editData.email !== 'N/A' && editData.email.trim()) 
+  ? editData.email 
+  : null,
         educational_background: editData.educational_background,
         occupation: editData.occupation,
         civil_status: editData.civil_status,
@@ -1012,7 +1016,7 @@ export default function Workers() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Started Ministry</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Started in Ministry</label>
                     <input
                       type="date"
                       name="date_started_ministry"

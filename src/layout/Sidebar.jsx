@@ -25,30 +25,24 @@ const SidebarLayout = ({ children }) => {
   // Mobile drawer open state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Responsive detection - FIXED: Better initialization and cleanup
+  // Responsive detection
   const [isMobile, setIsMobile] = useState(false);
   
   useEffect(() => {
-    // Check if window is defined (for SSR)
     if (typeof window === 'undefined') return;
     
     const checkMobile = () => {
       const isMobileView = window.innerWidth < 768;
       setIsMobile(isMobileView);
       
-      // Auto-close drawer when switching to desktop
       if (!isMobileView) {
         setIsMobileOpen(false);
       }
     };
     
-    // Initial check
     checkMobile();
-    
-    // Add resize listener
     window.addEventListener('resize', checkMobile);
     
-    // Cleanup
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
@@ -82,7 +76,6 @@ const SidebarLayout = ({ children }) => {
   const handleBackdropClick = () => setIsMobileOpen(false);
 
   // --- Dynamic class helpers ---
-  // Labels visibility: always visible on mobile, otherwise based on isCollapsed
   const showLabels = isMobile ? true : !isCollapsed;
   const textClass = `transition-opacity duration-200 ${
     showLabels ? "opacity-100 ml-4" : "opacity-0 w-0"
@@ -96,7 +89,7 @@ const SidebarLayout = ({ children }) => {
         : "hover:bg-green-100/10"
     } ${
       isMobile
-        ? "px-4 w-full justify-start" // FIXED: Changed from justify-center to justify-start
+        ? "px-4 w-full justify-start"
         : isCollapsed
         ? "justify-center w-12 px-0"
         : "px-4 w-full"
@@ -119,11 +112,20 @@ const SidebarLayout = ({ children }) => {
     <div className="h-screen flex flex-col bg-gray-100">
       <Topbar />
 
-      {/* Mobile menu button – only visible when drawer is closed on mobile */}
-      {isMobile && !isMobileOpen && (
+      {/* FIXED: Mobile menu button – positioned absolutely within the flex container */}
+      {isMobile && (
         <button
-          onClick={() => setIsMobileOpen(true)}
-          className="fixed top-4 left-4 z-50 w-12 h-12 bg-[#1b2430] rounded-lg flex items-center justify-center text-white shadow-lg hover:bg-[#2a3645] transition-colors"
+          onClick={toggleSidebar}
+          className={`
+            absolute top-4 left-4 z-50
+            w-12 h-12 
+            bg-[#1b2430] bg-opacity-90 backdrop-blur-sm
+            rounded-lg flex items-center justify-center 
+            text-white shadow-lg 
+            hover:bg-[#2a3645] hover:bg-opacity-100
+            transition-all duration-300 ease-in-out
+            ${isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
+          `}
           aria-label="Open sidebar"
           aria-expanded={false}
         >
@@ -140,26 +142,26 @@ const SidebarLayout = ({ children }) => {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden relative"> {/* FIXED: Added relative */}
-        {/* SIDEBAR - FIXED: Completely separated desktop and mobile rendering */}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* SIDEBAR */}
         {isMobile ? (
           /* 📱 MOBILE – fixed drawer, slides in/out */
           <aside
             className={`
-              fixed top-16 left-0 z-40
-              w-56 h-[calc(100vh-64px)]
-              bg-linear-to-b from-[#1b2430] to-[#121820] shadow-md
-              flex flex-col p-4
+              fixed top-0 left-0 z-40
+              w-64 h-full
+              bg-linear-to-b from-[#1b2430] to-[#121820] shadow-xl
+              flex flex-col
               transition-transform duration-300 ease-in-out
-              overflow-y-auto
+              overflow-y-auto pt-16
               ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
             `}
           >
-            {/* Toggle button */}
-            <div className="flex w-full mb-2 justify-end">
+            {/* Toggle button - repositioned inside drawer header */}
+            <div className="absolute top-4 right-4 z-50">
               <button
                 onClick={toggleSidebar}
-                className="cursor-pointer text-white hover:bg-white/10 w-12 h-12 rounded-lg flex items-center justify-center transition-all duration-300"
+                className="cursor-pointer text-white hover:bg-white/10 w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300"
                 aria-label="Close sidebar"
                 aria-expanded={isMobileOpen}
               >
@@ -167,7 +169,7 @@ const SidebarLayout = ({ children }) => {
               </button>
             </div>
 
-            <nav className="flex flex-col space-y-1 items-start h-full w-full">
+            <nav className="flex flex-col space-y-1 items-start h-full w-full px-4 pt-12">
               {/* Dashboard */}
               <NavLink to="/dashboard" className={navLinkStyles}>
                 <DashboardIcon className="min-w-[24px]" />

@@ -468,7 +468,7 @@ export default function Scanner() {
 
       {/* Footer */}
       <p className="mt-8 text-gray-400 text-[10px] font-bold tracking-widest uppercase">
-        © 2026 Event-Based Attendance System
+        © 2026 JCTGBTG LIPA Attendance System
       </p>
       
       <style>{`
