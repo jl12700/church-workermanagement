@@ -157,31 +157,6 @@ const handleDelete = async () => {
             </div>
           )}
 
-         
-          {event.status === 'completed' && (
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="font-semibold text-blue-800 mb-3">Event Summary</h4>
-              <div className="grid grid-cols-3 gap-4 mb-3">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-700">{event.total_attendance}</div>
-                  <div className="text-xs text-blue-600">Total Attendance</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-700">{event.baptized_brethren_count}</div>
-                  <div className="text-xs text-blue-600">Baptized Brethren</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-700">{event.new_guests_count}</div>
-                  <div className="text-xs text-blue-600">New Guests</div>
-                </div>
-              </div>
-              {event.completion_notes && (
-                <p className="text-sm text-blue-700">{event.completion_notes}</p>
-              )}
-            </div>
-          )}
-
-         
           {workers.length > 0 && (
             <div>
               <h3 className="text-lg font-semibold mb-3">Functional Workers ({workers.length})</h3>
@@ -197,52 +172,6 @@ const handleDelete = async () => {
             </div>
           )}
 
-          <div>
-            <h3 className="text-lg font-semibold mb-3">Attendance ({attendance.length})</h3>
-
-            {stats && (
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="bg-green-50 p-3 rounded-lg text-center">
-                  <div className="text-xl font-bold text-green-700">{stats.total_attendance || 0}</div>
-                  <div className="text-xs text-green-600">Total</div>
-                </div>
-                <div className="bg-blue-50 p-3 rounded-lg text-center">
-                  <div className="text-xl font-bold text-blue-700">{stats.baptized_count || 0}</div>
-                  <div className="text-xs text-blue-600">Baptized</div>
-                </div>
-                <div className="bg-purple-50 p-3 rounded-lg text-center">
-                  <div className="text-xl font-bold text-purple-700">{stats.guest_count || 0}</div>
-                  <div className="text-xs text-purple-600">Guests</div>
-                </div>
-              </div>
-            )}
-
-            {attendance.length > 0 ? (
-              <div className="bg-gray-50 rounded-lg p-4 max-h-60 overflow-y-auto">
-                <div className="space-y-2">
-                  {attendance.map((record) => (
-                    <div key={record.id} className="flex justify-between items-center bg-white p-2 rounded border">
-                      <div>
-                        <span className="font-medium">{record.member?.name || 'Unknown'}</span>
-                        {record.is_guest && (
-                          <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">Guest</span>
-                        )}
-                      </div>
-                      <span className="text-sm text-gray-500">
-                        {new Date(record.check_in_time).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p className="text-gray-500 text-sm">No attendance recorded yet</p>
-            )}
-          </div>
         </div>
       </div>
     </div>

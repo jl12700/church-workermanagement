@@ -57,12 +57,8 @@ const getStatusBadge = (status) => {
 };
 
 const EVENT_TYPES = {
-  sunday_service: { label: 'Sunday Service', color: 'bg-purple-50 text-purple-700' },
-  prayer_meeting: { label: 'Prayer Meeting', color: 'bg-blue-50 text-blue-700' },
-  bible_study: { label: 'Bible Study', color: 'bg-green-50 text-green-700' },
-  meet: { label: 'Meeting / Setup', color: 'bg-orange-50 text-orange-700' },
-  outreach: { label: 'Workers Conference', color: 'bg-red-50 text-red-700' },
-  church_event: { label: 'Church Event', color: 'bg-indigo-50 text-indigo-700' }
+  meeting: { label: 'Meeting / Setup', color: 'bg-green-50 text-green-700' },
+  event: { label: 'Church Event', color: 'bg-indigo-50 text-indigo-700' }
 };
 
 // Ministry categories for grouping
@@ -70,9 +66,9 @@ const MINISTRY_CATEGORIES = [
   'Preacher',
   'Teacher',
   'Worship Team',
-  'Tech-Prod',
+  'Tech-prod',
   'Faces',
-  'C-CUBE',
+  'C-Cube',
   'Comrades'
 ];
 
@@ -793,10 +789,10 @@ export default function Reports() {
               <div className="relative">
                 <input
                   type="text"
-                  placeholder="Search..."
+                  placeholder="Search here..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-50  border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 />
                 {searchTerm && (
                   <button
@@ -936,7 +932,7 @@ export default function Reports() {
                                     <button
                                       onClick={() => report.hasStarted && loadAttendanceDetails(report)}
                                       disabled={!report.hasStarted}
-                                      className={`text-xs text-black border px-3 py-1.5 rounded-md shadow-sm min-w-[60px] text-center font-medium transition-colors ${
+                                      className={`text-xs text-gray-100 border px-3 py-1.5 rounded-md shadow-sm min-w-[60px] text-center font-medium transition-colors ${
                                         !report.hasStarted
                                           ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
                                           : 'cursor-pointer border-blue-600 bg-blue-600 hover:bg-blue-700'
@@ -1005,7 +1001,7 @@ export default function Reports() {
                                                       {percentage}%
                                                     </span>
                                                   </div>
-                                                  <div className="text-lg font-bold text-gray-900 mb-2">
+                                                  <div className="text-l text-gray-900 mb-2">
                                                     {presentAndLate} / {stats.total} Workers Present
                                                   </div>
                                                   <div className="flex gap-3 text-xs">
