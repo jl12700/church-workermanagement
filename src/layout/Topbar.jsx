@@ -19,10 +19,10 @@ const Topbar = () => {
     <header className="w-full h-16 bg-gradient-to-r from-[#1b2430] to-[#121820] shadow-md flex items-center px-6 border-b border-gray-700/30">
       <div className="w-full flex items-center justify-between">
         {/* Left side - Title */}
-        <h1 className="text-2xl font-bold text-white tracking-wide">JCTGBTG</h1>
+        <h1 className="text-2xl font-bold text-white tracking-wide">JCTGBTG-LIPA</h1>
 
         {/* Right side - Date Display with improved contrast */}
-        <div className="flex items-center gap-3 bg-blue-800/40 backdrop-blur-sm px-4 py-2 rounded-lg border border-blue-500/40 shadow-lg hover:bg-blue-700/50 transition-all duration-300">
+        //<div className="flex items-center gap-3 bg-blue-800/40 backdrop-blur-sm px-4 py-2 rounded-lg border border-blue-500/40 shadow-lg hover:bg-blue-700/50 transition-all duration-300">
           <div className="p-1.5 bg-blue-600/60 rounded-md shadow-inner">
             <Calendar className="w-4 h-4 text-blue-100" />
           </div>
