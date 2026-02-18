@@ -49,6 +49,33 @@ export default function WorkersAttendance() {
     }
   };
 
+  // Helper: get event type label
+  const getEventTypeLabel = (type) => {
+    const labels = {
+      sunday_service: 'Sunday Service',
+      church_event: 'Church Event',
+      event: 'Event',
+      meeting: 'Meeting',
+    };
+    return labels[type] || (type ? type.replace(/_/g, ' ') : 'Event');
+  };
+
+  // Helper: get event type badge color classes
+  const getEventTypeBadgeClass = (type) => {
+    switch (type) {
+      case 'sunday_service':
+        return 'bg-purple-100 text-purple-800 border border-purple-200';
+      case 'church_event':
+        return 'bg-pink-100 text-pink-800 border border-pink-200';
+      case 'event':
+        return 'bg-blue-100 text-blue-800 border border-blue-200';
+      case 'meeting':
+        return 'bg-orange-100 text-orange-800 border border-orange-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border border-gray-200';
+    }
+  };
+
   // Export Worker Complete Attendance History to CSV
   const exportWorkerAttendanceCSV = async (worker) => {
     setExportLoading(true);
@@ -140,7 +167,7 @@ export default function WorkersAttendance() {
           escapeCSV(worker.id),
           escapeCSV(event.title),
           escapeCSV(formattedEventDate),
-          escapeCSV(event.type?.replace('_', ' ') || 'Event'),
+          escapeCSV(getEventTypeLabel(event.type)),
           escapeCSV(status),
           escapeCSV(scanTime),
           escapeCSV(checkInTime),
@@ -274,7 +301,7 @@ export default function WorkersAttendance() {
           escapeCSV(worker.ministry || ''),
           escapeCSV(event.title),
           escapeCSV(formattedEventDate),
-          escapeCSV(event.type?.replace('_', ' ') || 'Event'),
+          escapeCSV(getEventTypeLabel(event.type)),
           escapeCSV(status),
           escapeCSV(scanTime),
           escapeCSV(checkInTime),
@@ -351,6 +378,7 @@ export default function WorkersAttendance() {
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
       
+      // Fetch ALL approved events for this month (no type filter)
       const { data: events, error: eventsError } = await supabase
         .from('events')
         .select('*')
@@ -416,7 +444,7 @@ export default function WorkersAttendance() {
             eventDate: event.event_date,
             place: event.place
           });
-        } else if (eventDate > today) {
+        } else {
           attendanceMap[event.event_date].push({
             eventId: event.id,
             eventTitle: event.title,
@@ -568,25 +596,10 @@ export default function WorkersAttendance() {
     return null;
   };
 
-  // Check if a date is today
-  const isToday = (date) => {
-    const today = new Date();
-    return date.getDate() === today.getDate() &&
-           date.getMonth() === today.getMonth() &&
-           date.getFullYear() === today.getFullYear();
-  };
-
-  // Check if a date is in the future
-  const isFutureDate = (date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const checkDate = new Date(date);
-    checkDate.setHours(0, 0, 0, 0);
-    return checkDate > today;
-  };
-
-  const handleMonthChange = (date) => {
-    setSelectedMonth(date);
+  const handleMonthChange = ({ activeStartDate }) => {
+    if (activeStartDate) {
+      setSelectedMonth(activeStartDate);
+    }
   };
 
   // Get all events for this month grouped by date
@@ -889,9 +902,7 @@ export default function WorkersAttendance() {
               </div>
 
               {showCalendarView ? (
-                /* ======================================================== */
-                /* ENHANCED CALENDAR VIEW WITH IMPROVED UI                  */
-                /* ======================================================== */
+                /* CALENDAR VIEW */
                 <>
                   {/* Summary Stats */}
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -935,7 +946,7 @@ export default function WorkersAttendance() {
                     </div>
                   </div>
 
-                  {/* Enhanced Color Legend with better typography */}
+                  {/* Color Legend */}
                   <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200">
                     <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                       <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
@@ -965,31 +976,21 @@ export default function WorkersAttendance() {
                     </div>
                   </div>
 
-                  {/* Enhanced Calendar with improved UI */}
+                  {/* Calendar — duplicate onActiveStartDateChange removed */}
                   <div className="bg-white border rounded-xl p-4 shadow-lg">
                     <Calendar
-                      onChange={handleMonthChange}
                       value={selectedMonth}
                       view="month"
-                      onActiveStartDateChange={({ activeStartDate }) => {
-                        if (activeStartDate) {
-                          setSelectedMonth(activeStartDate);
-                        }
-                      }}
+                      onActiveStartDateChange={handleMonthChange}
                       tileClassName={tileClassName}
                       tileContent={tileContent}
-                      onActiveStartDateChange={({ activeStartDate }) => {
-                        if (activeStartDate) {
-                          setSelectedMonth(activeStartDate);
-                        }
-                      }}
                       onMouseOver={({ date }) => setHoveredDate(date?.toDateString())}
                       onMouseLeave={() => setHoveredDate(null)}
                       className="border-0 w-full calendar-enhanced"
                     />
                   </div>
 
-                  {/* All Events for This Month Section with improved styling */}
+                  {/* All Events for This Month */}
                   <div className="bg-white rounded-lg p-5 shadow-sm border border-gray-200">
                     <h4 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
                       <span className="w-1 h-4 bg-blue-500 rounded-full"></span>
@@ -1007,7 +1008,6 @@ export default function WorkersAttendance() {
                       <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
                         {getAllEventsForMonth().map((event, index) => {
                           const date = new Date(event.dateStr);
-                          const isPast = date < new Date() && event.status !== 'upcoming';
                           
                           return (
                             <div 
@@ -1026,13 +1026,8 @@ export default function WorkersAttendance() {
                                     <p className="font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">
                                       {event.eventTitle}
                                     </p>
-                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                                      event.eventType === 'sunday_service' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
-                                      event.eventType === 'event' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                                      event.eventType === 'meeting' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
-                                      'bg-gray-100 text-gray-800 border border-gray-200'
-                                    }`}>
-                                      {event.eventType?.replace('_', ' ') || 'Event'}
+                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getEventTypeBadgeClass(event.eventType)}`}>
+                                      {getEventTypeLabel(event.eventType)}
                                     </span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-3 mt-2 text-xs">
@@ -1086,9 +1081,7 @@ export default function WorkersAttendance() {
                   </div>
                 </>
               ) : (
-                /* ======================================================== */
-                /* LIST VIEW (UNCHANGED - PRESERVED)                        */
-                /* ======================================================== */
+                /* LIST VIEW */
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                     <div className="bg-gray-50 rounded-lg p-4">
@@ -1097,7 +1090,7 @@ export default function WorkersAttendance() {
                         {Object.values(monthlyAttendance).reduce((acc, events) => acc + events.length, 0)}
                       </p>
                     </div>
-                    <div className="bg-green-50 rounded-lg p-4">
+                    <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-500">
                       <p className="text-xs text-green-600 uppercase font-semibold">Present</p>
                       <p className="text-2xl font-bold text-green-600 mt-1">
                         {Object.values(monthlyAttendance).reduce((acc, events) => 
@@ -1105,7 +1098,7 @@ export default function WorkersAttendance() {
                         )}
                       </p>
                     </div>
-                    <div className="bg-yellow-50 rounded-lg p-4">
+                    <div className="bg-yellow-50 rounded-lg p-4  border-l-4 border-yellow-500">
                       <p className="text-xs text-yellow-600 uppercase font-semibold">Late</p>
                       <p className="text-2xl font-bold text-yellow-600 mt-1">
                         {Object.values(monthlyAttendance).reduce((acc, events) => 
@@ -1113,7 +1106,7 @@ export default function WorkersAttendance() {
                         )}
                       </p>
                     </div>
-                    <div className="bg-red-50 rounded-lg p-4">
+                    <div className="bg-red-50 rounded-lg p-4 border-l-4 border-red-500">
                       <p className="text-xs text-red-600 uppercase font-semibold">Absent</p>
                       <p className="text-2xl font-bold text-red-600 mt-1">
                         {Object.values(monthlyAttendance).reduce((acc, events) => 
@@ -1121,7 +1114,7 @@ export default function WorkersAttendance() {
                         )}
                       </p>
                     </div>
-                    <div className="bg-blue-50 rounded-lg p-4">
+                    <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-500">
                       <p className="text-xs text-blue-600 uppercase font-semibold">Upcoming</p>
                       <p className="text-2xl font-bold text-blue-600 mt-1">
                         {Object.values(monthlyAttendance).reduce((acc, events) => 
@@ -1175,13 +1168,8 @@ export default function WorkersAttendance() {
                                       <div className="flex-1">
                                         <div className="flex items-center gap-2 flex-wrap">
                                           <p className="font-medium text-gray-900 text-sm">{event.eventTitle}</p>
-                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
-                                            event.eventType === 'sunday_service' ? 'bg-purple-100 text-purple-800' :
-                                            event.eventType === 'event' ? 'bg-blue-100 text-blue-800' :
-                                            event.eventType === 'meeting' ? 'bg-orange-100 text-orange-800' :
-                                            'bg-gray-100 text-gray-800'
-                                          }`}>
-                                            {event.eventType?.replace('_', ' ') || 'Event'}
+                                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${getEventTypeBadgeClass(event.eventType)}`}>
+                                            {getEventTypeLabel(event.eventType)}
                                           </span>
                                         </div>
                                         {event.checkInTime ? (
@@ -1233,7 +1221,7 @@ export default function WorkersAttendance() {
           </Modal>
         )}
         
-        {/* Enhanced Day Events Modal with better UI */}
+        {/* Day Events Modal */}
         {showDayEventsModal && selectedDateEvents && (
           <Modal onClose={() => setShowDayEventsModal(false)} title={`Events for ${selectedDateEvents.date.toLocaleDateString('en-US', { 
             weekday: 'long', 
@@ -1258,13 +1246,8 @@ export default function WorkersAttendance() {
                       <div className="flex-1">
                         <p className="font-semibold text-gray-900">{event.eventTitle}</p>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                            event.eventType === 'sunday_service' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
-                            event.eventType === 'event' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                            event.eventType === 'meeting' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
-                            'bg-gray-100 text-gray-800 border border-gray-200'
-                          }`}>
-                            {event.eventType?.replace('_', ' ') || 'Event'}
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getEventTypeBadgeClass(event.eventType)}`}>
+                            {getEventTypeLabel(event.eventType)}
                           </span>
                           {event.startTime && (
                             <span className="text-xs bg-white px-2 py-0.5 rounded-full text-gray-600 border border-gray-200">
@@ -1324,7 +1307,7 @@ export default function WorkersAttendance() {
         )}
       </div>
 
-      {/* Enhanced Calendar Styles */}
+      {/* Calendar Styles */}
       <style>{`
         .react-calendar {
           width: 100% !important;
@@ -1422,7 +1405,6 @@ export default function WorkersAttendance() {
           opacity: 0.4 !important;
         }
         
-        /* Custom scrollbar for event lists */
         .overflow-y-auto::-webkit-scrollbar {
           width: 6px;
         }
@@ -1441,7 +1423,6 @@ export default function WorkersAttendance() {
           background: #a1a1a1;
         }
         
-        /* Mobile responsiveness */
         @media (max-width: 768px) {
           .react-calendar__tile {
             min-height: 80px !important;
