@@ -4,20 +4,15 @@ import SidebarLayout from '../layout/Sidebar';
 import { supabase } from '../database/supabase';
 import { eventService } from '../database/eventService';
 import {
-  Search,
-  ScanLine,
-  X,
-  Download,
-  UserCheck,
-  UserX,
-  Clock,
-  Users,
-  Calendar,
-  MapPin,
-  Filter,
-  ArrowRight,
-  AlertCircle
+  Search, ScanLine, X, Download, UserCheck, UserX,
+  Clock, Users, Calendar, MapPin, Filter, ArrowRight, AlertCircle
 } from 'lucide-react';
+
+// ✅ Timezone-safe local date string helper
+const getLocalDateString = (date = new Date()) => {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 export default function EventAttendance() {
   const navigate = useNavigate();
@@ -42,11 +37,7 @@ export default function EventAttendance() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [hasEventToday, setHasEventToday] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-  
-  // NEW: Search state
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // NEW: Manual event ending states
   const [showEndEventModal, setShowEndEventModal] = useState(false);
   const [endEventData, setEndEventData] = useState({
     totalAttendees: '',
@@ -55,7 +46,6 @@ export default function EventAttendance() {
   });
   const [endEventErrors, setEndEventErrors] = useState({});
 
-  // Event type options
   const eventTypes = [
     { value: 'all', label: 'All Types', color: 'bg-gray-50 text-gray-700 border-gray-200' },
     { value: 'sunday_service', label: 'Sunday Service', color: 'bg-purple-50 text-purple-700 border-purple-200' },
@@ -63,15 +53,11 @@ export default function EventAttendance() {
     { value: 'meeting', label: 'Meetings', color: 'bg-orange-50 text-orange-700 border-orange-200' }
   ];
 
-  // Check if event is manually ended (stored in database)
-  const isEventManuallyEnded = (event) => {
-    return event?.is_ended === true;
-  };
+  const isEventManuallyEnded = (event) => event?.is_ended === true;
 
-  // Check if event is finished (past end time) - for display only, not for disabling
   const isEventFinished = (event) => {
     if (!event || event.status !== 'approved') return false;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString(); // ✅ Fixed
     const eventDate = event.event_date;
 
     if (eventDate < today) return true;
@@ -86,98 +72,74 @@ export default function EventAttendance() {
     return false;
   };
 
-  // NEW: Scanning rule - only today & not manually ended
   const canScanEvent = (event) => {
     if (!event || event.status !== 'approved') return false;
-    if (isEventManuallyEnded(event)) return false; // Check manual end instead
-    const today = new Date().toISOString().split('T')[0];
+    if (isEventManuallyEnded(event)) return false;
+    const today = getLocalDateString(); // ✅ Fixed
     return event.event_date === today;
   };
 
-  // NEW: Updated attendance status calculation based on new logic
   const calculateAttendanceStatus = (checkInTime, eventStartTime, eventPrepTime, eventDevotionTime) => {
     const checkIn = new Date(checkInTime);
-    const checkInTimeOnly = checkIn.toTimeString().split(' ')[0];
-    
-    // Parse times
+    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+
     const parseTime = (timeStr) => {
       if (!timeStr) return null;
       const [hours, minutes] = timeStr.split(':').map(Number);
       return hours * 60 + minutes;
     };
-    
-    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+
     const prepMinutes = parseTime(eventPrepTime);
     const devotionMinutes = parseTime(eventDevotionTime);
-    
-    // If prep and devotion times are available, use new logic
+
     if (prepMinutes !== null && devotionMinutes !== null) {
-      // Present: scanned from prep time until devotion time
-      if (checkInMinutes >= prepMinutes && checkInMinutes <= devotionMinutes) {
-        return 'present';
-      }
-      // Late: scanned after devotion time
-      else if (checkInMinutes > devotionMinutes) {
-        return 'late';
-      }
+      if (checkInMinutes >= prepMinutes && checkInMinutes <= devotionMinutes) return 'present';
+      if (checkInMinutes > devotionMinutes) return 'late';
     }
-    
-    // Fallback to basic logic if prep/devotion times not available
+
     if (eventStartTime) {
       const [startHour, startMinute] = eventStartTime.split(':').map(Number);
       const startTotalMinutes = startHour * 60 + startMinute;
-      
-      if (checkInMinutes <= startTotalMinutes + 15) {
-        return 'present';
-      } else if (checkInMinutes <= startTotalMinutes + 30) {
-        return 'late';
-      } else {
-        return 'late'; // Changed from 'absent' - absent only when event ended without scan
-      }
+      if (checkInMinutes <= startTotalMinutes + 15) return 'present';
+      return 'late';
     }
-    
+
     return 'present';
   };
 
-  // Fetch all approved events - FIXED: Now properly filters by selected month
   const fetchEvents = async () => {
     setLoading(true);
     try {
-      // Build date range based on selected month
-      const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).toISOString().split('T')[0];
-      const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).toISOString().split('T')[0];
-      
+      const monthStart = getLocalDateString(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1)); // ✅ Fixed
+      const monthEnd = getLocalDateString(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0)); // ✅ Fixed
+
       const { data, error } = await eventService.getAllEvents({
         startDate: eventFilter === 'month' ? monthStart : undefined,
         endDate: eventFilter === 'month' ? monthEnd : undefined
       });
-      
+
       if (error) throw error;
-      
-      const today = new Date().toISOString().split('T')[0];
+
+      const today = getLocalDateString(); // ✅ Fixed
       const sortedEvents = (data || []).sort((a, b) => {
         const dateA = new Date(a.event_date);
         const dateB = new Date(b.event_date);
-        
+        const todayDate = new Date(today);
+
         if (a.event_date === today && b.event_date !== today) return -1;
         if (a.event_date !== today && b.event_date === today) return 1;
-        
-        if (dateA >= new Date(today) && dateB >= new Date(today)) {
-          return dateA - dateB;
-        } else if (dateA < new Date(today) && dateB < new Date(today)) {
-          return dateB - dateA;
-        } else {
-          return dateA < new Date(today) ? 1 : -1;
-        }
+        if (dateA >= todayDate && dateB >= todayDate) return dateA - dateB;
+        if (dateA < todayDate && dateB < todayDate) return dateB - dateA;
+        return dateA < todayDate ? 1 : -1;
       });
-      
+
       setEvents(sortedEvents);
-      
-      const todayApprovedEvents = sortedEvents.filter(e => 
+
+      const todayApprovedEvents = sortedEvents.filter(e =>
         e.event_date === today && e.status === 'approved'
       );
       setHasEventToday(todayApprovedEvents.length > 0);
-      
+
     } catch (error) {
       console.error('Error fetching events:', error);
       alert('Failed to load events');
@@ -186,7 +148,6 @@ export default function EventAttendance() {
     }
   };
 
-  // Fetch all active workers
   const fetchWorkers = async () => {
     try {
       const { data, error } = await supabase
@@ -194,7 +155,7 @@ export default function EventAttendance() {
         .select('*')
         .eq('status', 'Active')
         .order('name', { ascending: true });
-      
+
       if (error) throw error;
       setWorkers(data || []);
     } catch (error) {
@@ -202,17 +163,16 @@ export default function EventAttendance() {
     }
   };
 
-  // Filter events based on selected filters
   const getFilteredEvents = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString(); // ✅ Fixed
     let filtered = events;
-    
-    switch(eventFilter) {
+
+    switch (eventFilter) {
       case 'today':
         filtered = filtered.filter(event => event.event_date === today);
         break;
       case 'upcoming':
-        filtered = filtered.filter(event => 
+        filtered = filtered.filter(event =>
           event.event_date > today && event.status === 'approved'
         );
         break;
@@ -222,76 +182,69 @@ export default function EventAttendance() {
       case 'approved':
         filtered = filtered.filter(event => event.status === 'approved');
         break;
-      case 'month':
-        const monthStart = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1).toISOString().split('T')[0];
-        const monthEnd = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).toISOString().split('T')[0];
+      case 'month': {
+        const monthStart = getLocalDateString(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), 1)); // ✅ Fixed
+        const monthEnd = getLocalDateString(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0)); // ✅ Fixed
         filtered = filtered.filter(event => event.event_date >= monthStart && event.event_date <= monthEnd);
         break;
+      }
       case 'all':
       default:
         break;
     }
-    
+
     if (typeFilter !== 'all') {
       filtered = filtered.filter(event => event.type === typeFilter);
     }
-    
-    // NEW: Apply search filter
+
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(event => {
         const titleMatch = event.title?.toLowerCase().includes(query);
         const dateMatch = event.event_date?.includes(query);
         const typeMatch = event.type?.toLowerCase().includes(query);
-        const formattedDate = new Date(event.event_date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }).toLowerCase().includes(query);
-        
+        const formattedDate = new Date(event.event_date + 'T00:00:00') // ✅ Prevent date shift in display
+          .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          .toLowerCase()
+          .includes(query);
         return titleMatch || dateMatch || typeMatch || formattedDate;
       });
     }
-    
+
     return filtered;
   };
 
-  // Navigate to scanner page with selected event
   const openScanner = (eventToScan = null) => {
     const eventForScanner = eventToScan || selectedEvent;
-    
+
     if (eventForScanner && eventForScanner.status !== 'approved') {
       alert('Cannot scan attendance for unapproved events. Please wait for admin approval.');
       return;
     }
-    
+
     if (eventForScanner && !canScanEvent(eventForScanner)) {
-      alert('Scanning is only available for todays events that have not been manually ended.');
+      alert('Scanning is only available for today\'s events that have not been manually ended.');
       return;
     }
-    
+
     if (!eventForScanner) {
       navigate('/scanner');
     } else {
-      navigate('/scanner', { 
-        state: { selectedEvent: eventForScanner } 
-      });
+      navigate('/scanner', { state: { selectedEvent: eventForScanner } });
     }
   };
 
-  // View attendance for an event
   const viewAttendance = async (event) => {
     if (event.status !== 'approved') {
       alert('Cannot view attendance for unapproved events. Please wait for admin approval.');
       return;
     }
-    
+
     setSelectedEvent(event);
     setShowEventsPanel(false);
     await fetchAttendance(event.id);
   };
 
-  // Fetch attendance with proper status calculation
   const fetchAttendance = async (eventId) => {
     try {
       const event = events.find(e => e.id === eventId);
@@ -302,44 +255,33 @@ export default function EventAttendance() {
       }
 
       const { data, error } = await eventService.getEventAttendance(eventId);
-      
       if (error) throw error;
-      
+
       const recordsWithStatus = (data || []).map(record => {
         const status = calculateAttendanceStatus(
-          record.check_in_time, 
+          record.check_in_time,
           event.start_time,
           event.prep_time,
           event.devotion_time
         );
         return { ...record, status };
       });
-      
+
       setAttendanceRecords(recordsWithStatus);
-      
+
       const totalWorkers = workers.length;
       const scanned = recordsWithStatus.length;
       const presentCount = recordsWithStatus.filter(r => r.status === 'present').length;
       const lateCount = recordsWithStatus.filter(r => r.status === 'late').length;
-      
-      // Absent count: workers who didn't scan if event is ended
       const absentCount = isEventManuallyEnded(event) ? (totalWorkers - scanned) : 0;
       const notScanned = totalWorkers - scanned;
-      
-      setSummary({
-        scanned,
-        absent: notScanned,
-        totalWorkers,
-        presentCount,
-        lateCount,
-        absentCount
-      });
+
+      setSummary({ scanned, absent: notScanned, totalWorkers, presentCount, lateCount, absentCount });
     } catch (error) {
       console.error('Error fetching attendance:', error);
     }
   };
 
-  // Manually add attendance
   const manuallyAddAttendance = async (workerId) => {
     try {
       if (!selectedEvent || selectedEvent.status !== 'approved') {
@@ -353,16 +295,9 @@ export default function EventAttendance() {
       }
 
       const worker = workers.find(w => w.id === workerId);
-      
-      if (!worker) {
-        alert('Worker not found');
-        return;
-      }
+      if (!worker) { alert('Worker not found'); return; }
 
-      const alreadyScanned = attendanceRecords.some(record => 
-        record.worker_id === worker.id
-      );
-
+      const alreadyScanned = attendanceRecords.some(record => record.worker_id === worker.id);
       if (alreadyScanned) {
         setScanMessage(`${worker.name} already checked in`);
         setScanMessageType('warning');
@@ -370,11 +305,7 @@ export default function EventAttendance() {
         return;
       }
 
-      const { error } = await eventService.recordAttendance(
-        selectedEvent.id,
-        worker.id,
-        'manual'
-      );
+      const { error } = await eventService.recordAttendance(selectedEvent.id, worker.id, 'manual');
 
       if (error) {
         if (error.message === 'Already checked in to this event') {
@@ -388,7 +319,7 @@ export default function EventAttendance() {
         setScanMessageType('success');
         await fetchAttendance(selectedEvent.id);
       }
-      
+
       setTimeout(() => setScanMessage(''), 3000);
     } catch (error) {
       console.error('Error adding attendance:', error);
@@ -396,38 +327,30 @@ export default function EventAttendance() {
     }
   };
 
-  // NEW: Validate end event form
   const validateEndEventForm = () => {
     const errors = {};
-    
     if (!endEventData.totalAttendees || endEventData.totalAttendees === '') {
       errors.totalAttendees = 'Total attendees is required';
     } else if (isNaN(endEventData.totalAttendees) || parseInt(endEventData.totalAttendees) < 0) {
       errors.totalAttendees = 'Must be a valid non-negative number';
     }
-    
     if (!endEventData.totalVisitors || endEventData.totalVisitors === '') {
       errors.totalVisitors = 'Total visitors is required';
     } else if (isNaN(endEventData.totalVisitors) || parseInt(endEventData.totalVisitors) < 0) {
       errors.totalVisitors = 'Must be a valid non-negative number';
     }
-    
     if (!endEventData.totalBaptized || endEventData.totalBaptized === '') {
       errors.totalBaptized = 'Total baptized is required';
     } else if (isNaN(endEventData.totalBaptized) || parseInt(endEventData.totalBaptized) < 0) {
       errors.totalBaptized = 'Must be a valid non-negative number';
     }
-    
     setEndEventErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // NEW: Handle end event
   const handleEndEvent = async () => {
-    if (!validateEndEventForm()) {
-      return;
-    }
-    
+    if (!validateEndEventForm()) return;
+
     try {
       const { error } = await supabase
         .from('events')
@@ -439,37 +362,24 @@ export default function EventAttendance() {
           ended_at: new Date().toISOString()
         })
         .eq('id', selectedEvent.id);
-      
+
       if (error) throw error;
-      
-      // Update local state
-      setEvents(events.map(e => 
-        e.id === selectedEvent.id 
-          ? { 
-              ...e, 
-              is_ended: true,
-              total_attendees: parseInt(endEventData.totalAttendees),
-              total_visitors: parseInt(endEventData.totalVisitors),
-              total_baptized: parseInt(endEventData.totalBaptized)
-            }
-          : e
-      ));
-      
-      setSelectedEvent({
+
+      const updatedEvent = {
         ...selectedEvent,
         is_ended: true,
         total_attendees: parseInt(endEventData.totalAttendees),
         total_visitors: parseInt(endEventData.totalVisitors),
         total_baptized: parseInt(endEventData.totalBaptized)
-      });
-      
+      };
+
+      setEvents(events.map(e => e.id === selectedEvent.id ? updatedEvent : e));
+      setSelectedEvent(updatedEvent);
       setShowEndEventModal(false);
       setEndEventData({ totalAttendees: '', totalVisitors: '', totalBaptized: '' });
       setEndEventErrors({});
-      
+
       alert('Event ended successfully!');
-      
-      // Refresh attendance to update absent count
       await fetchAttendance(selectedEvent.id);
     } catch (error) {
       console.error('Error ending event:', error);
@@ -477,35 +387,21 @@ export default function EventAttendance() {
     }
   };
 
-  // Export attendance to CSV - MODIFIED: Allow export for ended events even without attendance
   const exportAttendance = async () => {
     try {
-      if (!selectedEvent) {
-        alert('Please select an event first');
-        return;
-      }
-
-      if (selectedEvent.status !== 'approved') {
-        alert('Cannot export attendance for unapproved events.');
-        return;
-      }
-
-      // MODIFIED: Allow export if event is ended, even without attendance records
+      if (!selectedEvent) { alert('Please select an event first'); return; }
+      if (selectedEvent.status !== 'approved') { alert('Cannot export attendance for unapproved events.'); return; }
       if (attendanceRecords.length === 0 && !isEventManuallyEnded(selectedEvent)) {
         alert('No attendance records to export for ongoing event');
         return;
       }
 
-      // Generate CSV content
       let csvContent;
-      
+
       if (attendanceRecords.length === 0) {
-        // Export headers only with event metadata for ended events with no attendance
         const headers = ['Name', 'Ministry', 'Check-in Time', 'Status', 'Scan Type'];
         csvContent = headers.join(',') + '\n';
         csvContent += '"No attendance records","N/A","N/A","N/A","N/A"\n';
-        
-        // Add event summary data
         if (selectedEvent.total_attendees != null || selectedEvent.total_visitors != null || selectedEvent.total_baptized != null) {
           csvContent += '\n"Event Summary"\n';
           csvContent += `"Total Attendees","${selectedEvent.total_attendees || 0}"\n`;
@@ -513,10 +409,9 @@ export default function EventAttendance() {
           csvContent += `"Total Baptized","${selectedEvent.total_baptized || 0}"\n`;
         }
       } else {
-        // Normal export with attendance records
         csvContent = await eventService.exportEventAttendance(selectedEvent.id);
       }
-      
+
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -524,107 +419,82 @@ export default function EventAttendance() {
       link.download = `attendance-${selectedEvent.title}-${selectedEvent.event_date}.csv`;
       link.click();
       window.URL.revokeObjectURL(url);
-
     } catch (error) {
       console.error('Error exporting attendance:', error);
       alert('Failed to export attendance');
     }
   };
 
-  // Filter workers for manual search
   const filteredWorkers = workers.filter(worker => {
     const searchTerm = manualWorkerSearch.toLowerCase();
     return (
       !attendanceRecords.some(record => record.worker_id === worker.id) &&
       (worker.name.toLowerCase().includes(searchTerm) ||
-       worker.ministry.toLowerCase().includes(searchTerm))
+        worker.ministry.toLowerCase().includes(searchTerm))
     );
   });
 
-  // Memoized sorted events for display
   const sortedFilteredEvents = useMemo(() => {
     const filtered = getFilteredEvents();
-    const today = new Date().toISOString().split('T')[0];
-    
+    const today = getLocalDateString(); // ✅ Fixed
+    const todayDate = new Date(today + 'T00:00:00');
+
     return filtered.sort((a, b) => {
-      const dateA = new Date(a.event_date);
-      const dateB = new Date(b.event_date);
-      
+      const dateA = new Date(a.event_date + 'T00:00:00'); // ✅ Fixed
+      const dateB = new Date(b.event_date + 'T00:00:00'); // ✅ Fixed
+
       if (a.event_date === today && b.event_date !== today) return -1;
       if (a.event_date !== today && b.event_date === today) return 1;
-      
-      if (dateA > new Date(today) && dateB > new Date(today)) {
-        return dateA - dateB;
-      }
-      
-      if (dateA < new Date(today) && dateB < new Date(today)) {
-        return dateB - dateA;
-      }
-      
-      return dateA < new Date(today) ? 1 : -1;
+      if (dateA > todayDate && dateB > todayDate) return dateA - dateB;
+      if (dateA < todayDate && dateB < todayDate) return dateB - dateA;
+      return dateA < todayDate ? 1 : -1;
     });
   }, [events, eventFilter, typeFilter, searchQuery, selectedMonth]);
 
-  // Get event type display
   const getEventTypeDisplay = (type) => {
     const eventType = eventTypes.find(t => t.value === type);
     return eventType ? eventType.label : type?.replace('_', ' ') || 'Event';
   };
 
-  // Get status badge styling
   const getStatusBadge = (status) => {
-    switch(status) {
-      case 'present':
-        return 'bg-green-50 text-green-700 border-green-200';
-      case 'late':
-        return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-      case 'absent':
-        return 'bg-red-50 text-red-700 border-red-200';
-      default:
-        return 'bg-gray-50 text-gray-700 border-gray-200';
+    switch (status) {
+      case 'present': return 'bg-green-50 text-green-700 border-green-200';
+      case 'late': return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+      case 'absent': return 'bg-red-50 text-red-700 border-red-200';
+      default: return 'bg-gray-50 text-gray-700 border-gray-200';
     }
   };
 
-  // Initialize
   useEffect(() => {
     fetchEvents();
     fetchWorkers();
   }, []);
 
-  // FIXED: Refetch when selectedMonth or eventFilter changes
   useEffect(() => {
     fetchEvents();
   }, [selectedMonth, eventFilter]);
 
-  // Real-time attendance updates
   useEffect(() => {
     if (!selectedEvent) return;
-    
-    if (selectedEvent.status !== 'approved') {
-      setSelectedEvent(null);
-      return;
-    }
+    if (selectedEvent.status !== 'approved') { setSelectedEvent(null); return; }
 
     const channel = supabase
       .channel(`event-attendance-${selectedEvent.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'event_attendance',
-          filter: `event_id=eq.${selectedEvent.id}`
-        },
-        () => {
-          fetchAttendance(selectedEvent.id);
-        }
-      )
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'event_attendance',
+        filter: `event_id=eq.${selectedEvent.id}`
+      }, () => {
+        fetchAttendance(selectedEvent.id);
+      })
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [selectedEvent]);
+
+  // ✅ today computed once for JSX, timezone-safe
+  const today = getLocalDateString();
 
   return (
     <SidebarLayout>
@@ -633,21 +503,15 @@ export default function EventAttendance() {
         <div className="mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-gray-900">
-                Event Attendance
-              </h1>
+              <h1 className="text-2xl font-semibold text-gray-900">Event Attendance</h1>
               <p className="mt-1 text-sm text-gray-600">
                 Scan QR codes and manage attendance for church events
               </p>
             </div>
-            
-            {/* Compact month picker */}
             <div className="flex items-center gap-2">
               <input
                 type="month"
-                value={`${selectedMonth.getFullYear()}-${String(
-                  selectedMonth.getMonth() + 1
-                ).padStart(2, '0')}`}
+                value={`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`}
                 onChange={(e) => {
                   const [year, month] = e.target.value.split('-').map(Number);
                   setSelectedMonth(new Date(year, month - 1, 1));
@@ -656,10 +520,7 @@ export default function EventAttendance() {
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
               <button
-                onClick={() => {
-                  setSelectedMonth(new Date());
-                  setEventFilter('today');
-                }}
+                onClick={() => { setSelectedMonth(new Date()); setEventFilter('today'); }}
                 className="px-3 py-2 text-xs font-medium text-blue-600 hover:text-blue-700 border border-gray-300 rounded-md hover:bg-gray-50 whitespace-nowrap"
               >
                 Today
@@ -668,7 +529,6 @@ export default function EventAttendance() {
           </div>
         </div>
 
-        {/* Mobile Toggle for Events Panel */}
         {selectedEvent && (
           <button
             onClick={() => setShowEventsPanel(!showEventsPanel)}
@@ -682,9 +542,7 @@ export default function EventAttendance() {
           {/* Events List Panel */}
           <div className={`lg:col-span-5 ${selectedEvent && !showEventsPanel ? 'hidden lg:block' : ''}`}>
             <div className="bg-white border border-gray-200 rounded-lg">
-              {/* Filters */}
               <div className="p-4 border-b border-gray-200">
-                {/* NEW: Search Input */}
                 <div className="mb-3">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -696,21 +554,16 @@ export default function EventAttendance() {
                       className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                     />
                     {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
+                      <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
                         <X className="w-4 h-4" />
                       </button>
                     )}
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Filter by Date
-                    </label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Filter by Date</label>
                     <select
                       value={eventFilter}
                       onChange={(e) => setEventFilter(e.target.value)}
@@ -724,27 +577,21 @@ export default function EventAttendance() {
                       <option value="approved">Approved Only</option>
                     </select>
                   </div>
-                  
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Filter by Type
-                    </label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Filter by Type</label>
                     <select
                       value={typeFilter}
                       onChange={(e) => setTypeFilter(e.target.value)}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                     >
                       {eventTypes.map(type => (
-                        <option key={type.value} value={type.value}>
-                          {type.label}
-                        </option>
+                        <option key={type.value} value={type.value}>{type.label}</option>
                       ))}
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* Events List */}
               <div className="p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-medium text-gray-900">
@@ -766,18 +613,18 @@ export default function EventAttendance() {
                   <div className="space-y-3 max-h-[600px] overflow-y-auto">
                     {sortedFilteredEvents.map(event => {
                       const isApproved = event.status === 'approved';
-                      const isToday = event.event_date === new Date().toISOString().split('T')[0];
+                      const isToday = event.event_date === today; // ✅ Fixed
                       const manuallyEnded = isEventManuallyEnded(event);
                       const canScan = canScanEvent(event);
                       const eventType = eventTypes.find(t => t.value === event.type) || eventTypes[0];
-                      
+
                       return (
                         <div
                           key={event.id}
                           onClick={() => isApproved && viewAttendance(event)}
                           className={`border rounded-lg p-4 transition-all ${
-                            !isApproved 
-                              ? 'opacity-60 cursor-not-allowed bg-gray-50 border-gray-200' 
+                            !isApproved
+                              ? 'opacity-60 cursor-not-allowed bg-gray-50 border-gray-200'
                               : 'cursor-pointer hover:border-blue-400 hover:shadow-sm'
                           } ${
                             selectedEvent?.id === event.id
@@ -787,9 +634,7 @@ export default function EventAttendance() {
                         >
                           <div className="flex items-start justify-between gap-3 mb-3">
                             <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-gray-900 text-sm truncate mb-1">
-                                {event.title}
-                              </h3>
+                              <h3 className="font-medium text-gray-900 text-sm truncate mb-1">{event.title}</h3>
                               {!isApproved && (
                                 <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                   <AlertCircle className="w-3 h-3" />
@@ -802,7 +647,6 @@ export default function EventAttendance() {
                                 </span>
                               )}
                             </div>
-                            
                             <div className="flex items-center gap-2 flex-shrink-0">
                               {isToday && (
                                 <span className="text-xs font-medium bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">
@@ -819,10 +663,8 @@ export default function EventAttendance() {
                             <div className="flex items-center gap-2">
                               <Calendar className="w-3.5 h-3.5 text-gray-400" />
                               <span>
-                                {new Date(event.event_date).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric'
+                                {new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-US', { // ✅ Fixed
+                                  month: 'short', day: 'numeric', year: 'numeric'
                                 })}
                               </span>
                             </div>
@@ -840,10 +682,7 @@ export default function EventAttendance() {
 
                           <div className="flex gap-2">
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                viewAttendance(event);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); viewAttendance(event); }}
                               disabled={!isApproved}
                               className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                                 isApproved
@@ -854,25 +693,15 @@ export default function EventAttendance() {
                               <UserCheck className="w-3.5 h-3.5" />
                               View
                             </button>
-                            
                             <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openScanner(event);
-                              }}
+                              onClick={(e) => { e.stopPropagation(); openScanner(event); }}
                               disabled={!canScan}
                               className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
                                 canScan
                                   ? 'bg-green-600 hover:bg-green-700 text-white'
                                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                               }`}
-                              title={
-                                !canScan
-                                  ? manuallyEnded
-                                    ? 'Event ended'
-                                    : 'Scanning only available for today\'s events'
-                                  : 'Scan attendance'
-                              }
+                              title={!canScan ? (manuallyEnded ? 'Event ended' : 'Scanning only available for today\'s events') : 'Scan attendance'}
                             >
                               <ScanLine className="w-3.5 h-3.5" />
                               {manuallyEnded ? 'Ended' : 'Scan'}
@@ -891,14 +720,11 @@ export default function EventAttendance() {
           <div className={`lg:col-span-7 ${selectedEvent && showEventsPanel ? 'hidden lg:block' : ''}`}>
             {selectedEvent ? (
               <div className="space-y-4">
-                {/* Event Header */}
                 <div className="bg-white border border-gray-200 rounded-lg p-5">
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
-                        <h2 className="text-lg font-semibold text-gray-900">
-                          {selectedEvent.title}
-                        </h2>
+                        <h2 className="text-lg font-semibold text-gray-900">{selectedEvent.title}</h2>
                         {selectedEvent.status !== 'approved' && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700 rounded border border-amber-200">
                             <AlertCircle className="w-3 h-3" />
@@ -920,14 +746,11 @@ export default function EventAttendance() {
                         <div className="flex items-center gap-1.5">
                           <Calendar className="w-4 h-4 text-gray-400" />
                           <span>
-                            {new Date(selectedEvent.event_date).toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric'
+                            {new Date(selectedEvent.event_date + 'T00:00:00').toLocaleDateString('en-US', { // ✅ Fixed
+                              weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
                             })}
                           </span>
-                          {selectedEvent.event_date === new Date().toISOString().split('T')[0] && (
+                          {selectedEvent.event_date === today && ( // ✅ Fixed
                             <span className="ml-1 text-xs font-medium bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded">
                               TODAY
                             </span>
@@ -945,9 +768,8 @@ export default function EventAttendance() {
                         )}
                       </div>
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-2">
-                      {/* NEW: End Event Button */}
                       {canScanEvent(selectedEvent) && !isEventManuallyEnded(selectedEvent) && (
                         <button
                           onClick={() => setShowEndEventModal(true)}
@@ -957,7 +779,6 @@ export default function EventAttendance() {
                           End Event
                         </button>
                       )}
-                      
                       <button
                         onClick={() => openScanner(selectedEvent)}
                         disabled={!canScanEvent(selectedEvent)}
@@ -966,18 +787,11 @@ export default function EventAttendance() {
                             ? 'bg-green-600 hover:bg-green-700 text-white'
                             : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         }`}
-                        title={
-                          !canScanEvent(selectedEvent)
-                            ? isEventManuallyEnded(selectedEvent)
-                              ? 'Event ended'
-                              : 'Scanning only available for today\'s events'
-                            : 'Scan QR codes'
-                        }
+                        title={!canScanEvent(selectedEvent) ? (isEventManuallyEnded(selectedEvent) ? 'Event ended' : 'Scanning only available for today\'s events') : 'Scan QR codes'}
                       >
                         <ScanLine className="w-4 h-4" />
                         {isEventManuallyEnded(selectedEvent) ? 'Event Ended' : 'Scan QR'}
                       </button>
-                      
                       <button
                         onClick={exportAttendance}
                         disabled={selectedEvent.status !== 'approved' || (!isEventManuallyEnded(selectedEvent) && attendanceRecords.length === 0)}
@@ -986,11 +800,7 @@ export default function EventAttendance() {
                             ? 'bg-blue-600 hover:bg-blue-700 text-white'
                             : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         }`}
-                        title={
-                          attendanceRecords.length === 0 && !isEventManuallyEnded(selectedEvent)
-                            ? 'Export available after event ends'
-                            : 'Export to CSV'
-                        }
+                        title={attendanceRecords.length === 0 && !isEventManuallyEnded(selectedEvent) ? 'Export available after event ends' : 'Export to CSV'}
                       >
                         <Download className="w-4 h-4" />
                         Export CSV
@@ -998,14 +808,11 @@ export default function EventAttendance() {
                     </div>
                   </div>
 
-                  {/* Scan Message */}
                   {scanMessage && (
                     <div className={`p-3 rounded-md text-sm font-medium border ${
-                      scanMessageType === 'success' 
-                        ? 'bg-green-50 text-green-700 border-green-200' 
-                        : scanMessageType === 'warning'
-                        ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                        : 'bg-red-50 text-red-700 border-red-200'
+                      scanMessageType === 'success' ? 'bg-green-50 text-green-700 border-green-200'
+                      : scanMessageType === 'warning' ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                      : 'bg-red-50 text-red-700 border-red-200'
                     }`}>
                       {scanMessage}
                     </div>
@@ -1021,7 +828,6 @@ export default function EventAttendance() {
                     </div>
                     <p className="text-2xl font-semibold">{summary.totalWorkers}</p>
                   </div>
-
                   <div className="bg-green-600 rounded-lg p-4 text-white">
                     <div className="flex items-center gap-1.5 mb-2">
                       <UserCheck className="w-4 h-4" />
@@ -1029,7 +835,6 @@ export default function EventAttendance() {
                     </div>
                     <p className="text-2xl font-semibold">{summary.presentCount}</p>
                   </div>
-
                   <div className="bg-yellow-500 rounded-lg p-4 text-white">
                     <div className="flex items-center gap-1.5 mb-2">
                       <Clock className="w-4 h-4" />
@@ -1037,7 +842,6 @@ export default function EventAttendance() {
                     </div>
                     <p className="text-2xl font-semibold">{summary.lateCount}</p>
                   </div>
-
                   <div className="bg-red-600 rounded-lg p-4 text-white">
                     <div className="flex items-center gap-1.5 mb-2">
                       <UserX className="w-4 h-4" />
@@ -1045,7 +849,6 @@ export default function EventAttendance() {
                     </div>
                     <p className="text-2xl font-semibold">{summary.absentCount}</p>
                   </div>
-
                   <div className="bg-gray-600 rounded-lg p-4 text-white">
                     <div className="flex items-center gap-1.5 mb-2">
                       <Users className="w-4 h-4" />
@@ -1055,7 +858,7 @@ export default function EventAttendance() {
                   </div>
                 </div>
 
-                {/* Manual Entry Section */}
+                {/* Manual Entry / Status Panels */}
                 {canScanEvent(selectedEvent) ? (
                   <div className="bg-white border border-gray-200 rounded-lg">
                     <details className="group">
@@ -1068,7 +871,6 @@ export default function EventAttendance() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
                       </summary>
-                      
                       <div className="px-4 pb-4 border-t border-gray-200">
                         <div className="mt-4 mb-3">
                           <input
@@ -1108,25 +910,19 @@ export default function EventAttendance() {
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-5 text-center">
                     <AlertCircle className="w-10 h-10 mx-auto text-amber-500 mb-2" />
                     <h3 className="text-sm font-medium text-amber-900 mb-1">Event Pending Approval</h3>
-                    <p className="text-sm text-amber-700">
-                      This event is awaiting admin approval. Attendance features will be available once approved.
-                    </p>
+                    <p className="text-sm text-amber-700">This event is awaiting admin approval. Attendance features will be available once approved.</p>
                   </div>
                 ) : isEventManuallyEnded(selectedEvent) ? (
                   <div className="bg-gray-100 border border-gray-300 rounded-lg p-5 text-center">
                     <Calendar className="w-10 h-10 mx-auto text-gray-500 mb-2" />
                     <h3 className="text-sm font-medium text-gray-900 mb-1">Event Ended</h3>
-                    <p className="text-sm text-gray-600">
-                      This event has been manually ended. Scanning is no longer available.
-                    </p>
+                    <p className="text-sm text-gray-600">This event has been manually ended. Scanning is no longer available.</p>
                   </div>
                 ) : (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-5 text-center">
                     <Calendar className="w-10 h-10 mx-auto text-blue-500 mb-2" />
                     <h3 className="text-sm font-medium text-blue-900 mb-1">Upcoming Event</h3>
-                    <p className="text-sm text-blue-700">
-                      Scanning will be enabled on the event date.
-                    </p>
+                    <p className="text-sm text-blue-700">Scanning will be enabled on the event date.</p>
                   </div>
                 )}
 
@@ -1139,7 +935,7 @@ export default function EventAttendance() {
                           Attendance Records ({attendanceRecords.length})
                         </h3>
                         <span className="text-xs text-gray-500">
-                          Updated: {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          Updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     </div>
@@ -1148,9 +944,7 @@ export default function EventAttendance() {
                       <div className="text-center py-12">
                         <UserCheck className="w-12 h-12 mx-auto text-gray-300 mb-3" />
                         <p className="text-sm font-medium text-gray-500 mb-1">No attendance records yet</p>
-                        <p className="text-xs text-gray-400 mb-4">
-                          Start scanning QR codes to record attendance
-                        </p>
+                        <p className="text-xs text-gray-400 mb-4">Start scanning QR codes to record attendance</p>
                         {canScanEvent(selectedEvent) && (
                           <button
                             onClick={() => openScanner(selectedEvent)}
@@ -1169,24 +963,17 @@ export default function EventAttendance() {
                             <div key={record.id} className="p-4 hover:bg-gray-50">
                               <div className="flex justify-between items-start mb-2">
                                 <div>
-                                  <p className="font-medium text-gray-900 text-sm">
-                                    {record.worker?.name || 'Unknown'}
-                                  </p>
-                                  <p className="text-xs text-gray-500 mt-0.5">
-                                    {record.worker?.ministry || 'N/A'}
-                                  </p>
+                                  <p className="font-medium text-gray-900 text-sm">{record.worker?.name || 'Unknown'}</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">{record.worker?.ministry || 'N/A'}</p>
                                 </div>
                                 <span className={`px-2 py-0.5 text-xs font-medium rounded border ${getStatusBadge(record.status)}`}>
                                   {record.status?.toUpperCase() || 'PRESENT'}
                                 </span>
                               </div>
                               <div className="flex justify-between items-center text-xs text-gray-600">
-                                <span>
-                                  {new Date(record.check_in_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                </span>
+                                <span>{new Date(record.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                 <span className={`px-2 py-0.5 rounded border ${
-                                  record.scan_type === 'qr' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                  'bg-purple-50 text-purple-700 border-purple-200'
+                                  record.scan_type === 'qr' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'
                                 }`}>
                                   {(record.scan_type || 'qr').toUpperCase()}
                                 </span>
@@ -1194,7 +981,7 @@ export default function EventAttendance() {
                             </div>
                           ))}
                         </div>
-                        
+
                         {/* Desktop Table */}
                         <table className="hidden sm:table min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
@@ -1209,22 +996,14 @@ export default function EventAttendance() {
                           <tbody className="bg-white divide-y divide-gray-200">
                             {attendanceRecords.map((record) => (
                               <tr key={record.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {record.worker?.name || 'Unknown'}
-                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{record.worker?.name || 'Unknown'}</td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{record.worker?.ministry || 'N/A'}</td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                  {record.worker?.ministry || 'N/A'}
-                                </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
-                                  {new Date(record.check_in_time).toLocaleTimeString('en-US', {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
+                                  {new Date(record.check_in_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap">
                                   <span className={`px-2 py-0.5 text-xs font-medium rounded border ${
-                                    record.scan_type === 'qr' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                    'bg-purple-50 text-purple-700 border-purple-200'
+                                    record.scan_type === 'qr' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'
                                   }`}>
                                     {(record.scan_type || 'qr').toUpperCase()}
                                   </span>
@@ -1247,10 +1026,7 @@ export default function EventAttendance() {
               <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
                 <Calendar className="w-16 h-16 mx-auto text-gray-300 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Select an Event</h3>
-                <p className="text-sm text-gray-600 mb-6">
-                  Choose an event from the list to view and manage attendance
-                </p>
-                
+                <p className="text-sm text-gray-600 mb-6">Choose an event from the list to view and manage attendance</p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <button
                     onClick={() => setShowEventsPanel(true)}
@@ -1265,78 +1041,40 @@ export default function EventAttendance() {
         </div>
       </div>
 
-      {/* NEW: End Event Modal */}
+      {/* End Event Modal */}
       {showEndEventModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">End Event</h3>
-            <p className="text-sm text-gray-600 mb-6">
-              Please provide the following information before ending the event:
-            </p>
-            
+            <p className="text-sm text-gray-600 mb-6">Please provide the following information before ending the event:</p>
+
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Number of Attendees <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={endEventData.totalAttendees}
-                  onChange={(e) => setEndEventData({ ...endEventData, totalAttendees: e.target.value })}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
-                    endEventErrors.totalAttendees 
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-                  }`}
-                  placeholder="Enter total attendees"
-                />
-                {endEventErrors.totalAttendees && (
-                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalAttendees}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Number of Visitors <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={endEventData.totalVisitors}
-                  onChange={(e) => setEndEventData({ ...endEventData, totalVisitors: e.target.value })}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
-                    endEventErrors.totalVisitors 
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-                  }`}
-                  placeholder="Enter total visitors"
-                />
-                {endEventErrors.totalVisitors && (
-                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalVisitors}</p>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Number of Baptized <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={endEventData.totalBaptized}
-                  onChange={(e) => setEndEventData({ ...endEventData, totalBaptized: e.target.value })}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
-                    endEventErrors.totalBaptized 
-                      ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
-                      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-                  }`}
-                  placeholder="Enter total baptized"
-                />
-                {endEventErrors.totalBaptized && (
-                  <p className="mt-1 text-xs text-red-600">{endEventErrors.totalBaptized}</p>
-                )}
-              </div>
+              {[
+                { key: 'totalAttendees', label: 'Total Number of Attendees', placeholder: 'Enter total attendees' },
+                { key: 'totalVisitors', label: 'Total Number of Visitors', placeholder: 'Enter total visitors' },
+                { key: 'totalBaptized', label: 'Total Number of Baptized', placeholder: 'Enter total baptized' }
+              ].map(({ key, label, placeholder }) => (
+                <div key={key}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {label} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={endEventData[key]}
+                    onChange={(e) => setEndEventData({ ...endEventData, [key]: e.target.value })}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-1 ${
+                      endEventErrors[key]
+                        ? 'border-red-300 focus:ring-red-500 focus:border-red-500'
+                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                    }`}
+                    placeholder={placeholder}
+                  />
+                  {endEventErrors[key] && (
+                    <p className="mt-1 text-xs text-red-600">{endEventErrors[key]}</p>
+                  )}
+                </div>
+              ))}
             </div>
 
             <div className="flex gap-3 mt-6">
